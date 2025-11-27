@@ -137,3 +137,42 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# =================================
+# TaskFlow Project Specific Ignores
+# =================================
+
+# Uploaded files directory
+uploads/
+
+# Local MongoDB data
+data/db/
+
+# Temporary files
+tmp/
+temp/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment files
+!.env.example
+
+# Build outputs
+client/build/
+server/dist/
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids/
+*.pid
