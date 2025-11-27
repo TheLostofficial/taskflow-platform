@@ -91,4 +91,19 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// Временный endpoint для отладки - получить всех пользователей
+router.get('/debug/users', async (req, res) => {
+  try {
+    const users = await User.find().select('-password');
+    res.json({ 
+      message: 'Debug users list',
+      count: users.length,
+      users 
+    });
+  } catch (error) {
+    console.error('Debug users error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 export default router;

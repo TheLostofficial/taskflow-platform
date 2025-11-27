@@ -58,8 +58,8 @@ app.use((error, req, res, next) => {
 
 const startServer = async () => {
   try {
-    
-    console.log('⚠️  Running without MongoDB connection - models are ready');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/taskflow');
+    console.log('✅ Connected to MongoDB');
     
     const server = app.listen(PORT, () => {
       console.log(`🚀 Server is running on port ${PORT}`);
@@ -69,9 +69,11 @@ const startServer = async () => {
       console.log(`📁 Project routes: http://localhost:${PORT}/api/projects`);
     });
 
+    // Graceful shutdown
     process.on('SIGTERM', () => {
       console.log('SIGTERM received, shutting down gracefully');
       server.close(() => {
+        mongoose.connection.close();
         console.log('Process terminated');
       });
     });
