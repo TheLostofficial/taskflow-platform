@@ -23,17 +23,17 @@ const LoginPage = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    try {
-      const result = await dispatch(loginUser(formData)).unwrap();
-      if (result) {
-        navigate('/dashboard');
-      }
-    } catch (error) {
-      console.error('Login failed:', error);
+  e.preventDefault();
+  
+  try {
+    const result = await dispatch(loginUser(formData)).unwrap();
+    if (result) {
+      navigate('/dashboard');
     }
-  };
+  } catch (error) {
+    console.error('Login failed:', error);
+  }
+};
 
   return (
     <Container>

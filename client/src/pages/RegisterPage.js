@@ -25,27 +25,27 @@ const RegisterPage = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (formData.password !== formData.confirmPassword) {
-      alert('Пароли не совпадают');
-      return;
-    }
+  e.preventDefault();
+  
+  if (formData.password !== formData.confirmPassword) {
+    alert('Пароли не совпадают');
+    return;
+  }
 
-    try {
-      const result = await dispatch(registerUser({
-        name: formData.name,
-        email: formData.email,
-        password: formData.password
-      })).unwrap();
-      
-      if (result) {
-        navigate('/dashboard');
-      }
-    } catch (error) {
-      console.error('Registration failed:', error);
+  try {
+    const result = await dispatch(registerUser({
+      name: formData.name,
+      email: formData.email,
+      password: formData.password
+    })).unwrap();
+    
+    if (result) {
+      navigate('/dashboard');
     }
-  };
+  } catch (error) {
+    console.error('Registration failed:', error);
+  }
+};
 
   return (
     <Container>
