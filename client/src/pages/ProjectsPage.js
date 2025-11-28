@@ -1,13 +1,14 @@
-// client/src/pages/ProjectsPage.js
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Button, Spinner, Alert } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import CreateProjectModal from '../components/projects/CreateProjectModal';
 
 const ProjectsPage = () => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const { isAuthenticated } = useSelector(state => state.auth);
 
   useEffect(() => {
@@ -36,6 +37,10 @@ const ProjectsPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleProjectCreated = (newProject) => {
+    setProjects(prev => [newProject, ...prev]);
   };
 
   if (!isAuthenticated) {
@@ -70,59 +75,78 @@ const ProjectsPage = () => {
   }
 
   return (
-    <Container>
-      <Row className="mb-4">
-        <Col>
-          <div className="d-flex justify-content-between align-items-center">
-            <h1>Мои проекты</h1>
-            <Button variant="success" size="lg">
-              + Создать проект
-            </Button>
-          </div>
-        </Col>
-      </Row>
-
-      {error && <Alert variant="danger">{error}</Alert>}
-
-      <Row className="g-4">
-        {projects.length === 0 ? (
+    <>
+      <Container>
+        <Row className="mb-4">
           <Col>
-            <Card className="text-center py-5">
-              <Card.Body>
-                <h3>Проектов пока нет</h3>
-                <p className="text-muted">Создайте ваш первый проект чтобы начать работу</p>
-                <Button variant="primary" size="lg">
-                  Создать первый проект
-                </Button>
-              </Card.Body>
-            </Card>
+            <div className="d-flex justify-content-between align-items-center">
+              <h1>Мои проекты</h1>
+              <Button 
+                variant="success" 
+                size="lg"
+                onClick={() => setShowCreateModal(true)}
+              >
+                + Создать проект
+              </Button>
+            </div>
           </Col>
-        ) : (
-          projects.map(project => (
-            <Col key={project.id} md={6} lg={4}>
-              <Card className="h-100 shadow-sm">
+        </Row>
+
+        {error && <Alert variant="danger">{error}</Alert>}
+
+        <Row className="g-4">
+          {projects.length === 0 ? (
+            <Col>
+              <Card className="text-center py-5">
                 <Card.Body>
-                  <Card.Title>{project.name}</Card.Title>
-                  <Card.Text className="text-muted">
-                    {project.description || 'Описание отсутствует'}
-                  </Card.Text>
-                  <div className="mt-auto">
-                    <small className="text-muted">
-                      Статус: <span className="text-capitalize">{project.status}</span>
-                    </small>
-                  </div>
-                </Card.Body>
-                <Card.Footer>
-                  <Button variant="outline-primary" size="sm">
-                    Открыть
+                  <h3>Проектов пока нет</h3>
+                  <p className="text-muted">Создайте ваш первый проект чтобы начать работу</p>
+                  <Button 
+                    variant="primary" 
+                    size="lg"
+                    onClick={() => setShowCreateModal(true)}
+                  >
+                    Создать первый проект
                   </Button>
-                </Card.Footer>
+                </Card.Body>
               </Card>
             </Col>
-          ))
-        )}
-      </Row>
-    </Container>
+          ) : (
+            projects.map(project => (
+              <Col key={project._id || project.id} md={6} lg={4}>
+                <Card className="h-100 shadow-sm">
+                  <Card.Body className="d-flex flex-column">
+                    <Card.Title>{project.name}</Card.Title>
+                    <Card.Text className="text-muted flex-grow-1">
+                      {project.description || 'Описание отсутствует'}
+                    </Card.Text>
+                    <div className="mt-auto">
+                      <small className="text-muted d-block">
+                        Статус: <span className="text-capitalize">{project.status}</span>
+                      </small>
+                      <small className="text-muted">
+                        Участников: {project.members?.length || 1}
+                      </small>
+                    </div>
+                  </Card.Body>
+                  <Card.Footer>
+                    <Button variant="outline-primary" size="sm">
+                      Открыть
+                    </Button>
+                  </Card.Footer>
+                </Card>
+              </Col>
+            ))
+          )}
+        </Row>
+      </Container>
+
+      <CreateProjectModal
+        show={showCreateModal}
+        onHide={() => setShowCreateModal(false)}
+        onProjectCreated={handleProjectCreated}
+      />
+    </>
   );
 };
 
