@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Button, Badge, Form, Spinner, Alert } from 'react-bootstrap';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchProjectTasks, createTask, updateTask, deleteTask } from '../../store/slices/tasksSlice';
+import TaskDetailModal from './TaskDetailModal';
 
 const TaskList = ({ project, canEdit }) => {
   const dispatch = useDispatch();
   const { items: tasks, loading, error, operationLoading } = useSelector(state => state.tasks);
   
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [showTaskModal, setShowTaskModal] = useState(false);
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -207,7 +210,15 @@ const TaskList = ({ project, canEdit }) => {
               </Card.Header>
               <Card.Body className="p-2">
                 {tasksByStatus[column]?.map(task => (
-                  <Card key={task._id} className="mb-2 shadow-sm">
+                  <Card 
+                    key={task._id} 
+                    className="mb-2 shadow-sm"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      setSelectedTask(task);
+                      setShowTaskModal(true);
+                    }}
+                  >
                     <Card.Body className="p-3">
                       <div className="d-flex justify-content-between align-items-start mb-2">
                         <h6 className="mb-0">{task.title}</h6>
@@ -233,15 +244,22 @@ const TaskList = ({ project, canEdit }) => {
                               <Button
                                 variant="outline-danger"
                                 size="sm"
-                                onClick={() => handleDeleteTask(task._id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteTask(task._id);
+                                }}
                               >
                                 Удалить
                               </Button>
                               <Form.Select
                                 size="sm"
                                 value={task.status}
-                                onChange={(e) => handleStatusChange(task._id, e.target.value)}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  handleStatusChange(task._id, e.target.value);
+                                }}
                                 style={{ width: 'auto' }}
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 {project.settings.columns.map(col => (
                                   <option key={col} value={col}>{col}</option>
@@ -282,6 +300,23 @@ const TaskList = ({ project, canEdit }) => {
           </Card.Body>
         </Card>
       )}
+
+      {/* Модальное окно деталей задачи */}
+      <TaskDetailModal
+        show={showTaskModal}
+        onHide={() => {
+          setShowTaskModal(false);
+          setSelectedTask(null);
+        }}
+        task={selectedTask}
+        project={project}
+        onTaskUpdated={() => {
+          dispatch(fetchProjectTasks(project._id));
+        }}
+        onTaskDeleted={(taskId) => {
+          handleDeleteTask(taskId);
+        }}
+      />
     </div>
   );
 };
