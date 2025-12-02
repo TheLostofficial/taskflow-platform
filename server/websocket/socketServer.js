@@ -23,6 +23,8 @@ class SocketServer {
     this.setupConnection();
     
     console.log('✅ WebSocket сервер инициализирован');
+    console.log('📡 WebSocket путь: /socket.io/');
+    console.log('🌐 CORS origin:', process.env.CLIENT_URL || 'http://localhost:3000');
   }
 
   setupMiddleware() {
@@ -30,8 +32,21 @@ class SocketServer {
       try {
         const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
         
+        console.log('🔐 WebSocket: Попытка подключения, токен:', token ? 'предоставлен' : 'отсутствует');
+        
         if (!token) {
-          console.log('❌ WebSocket: Токен не предоставлен');
+          console.warn('⚠️ WebSocket: Токен не предоставлен');
+          // В режиме разработки разрешаем подключение без токена для тестирования
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🛠️ WebSocket: Разрешаем подключение без токена в dev режиме');
+            socket.userId = 'anonymous_' + socket.id;
+            socket.user = { 
+              _id: 'anonymous', 
+              email: 'anonymous@dev.local',
+              name: 'Anonymous User'
+            };
+            return next();
+          }
           return next(new Error('Authentication error: Token required'));
         }
 
@@ -46,19 +61,22 @@ class SocketServer {
         socket.userId = user._id.toString();
         socket.user = user;
         
-        console.log(`✅ WebSocket: Аутентификация успешна для пользователя ${user.email}`);
+        console.log(`✅ WebSocket: Аутентификация успешна для пользователя ${user.email} (ID: ${user._id})`);
         next();
       } catch (error) {
         console.error('❌ WebSocket auth error:', error.message);
         
         if (error.name === 'JsonWebTokenError') {
+          console.error('❌ WebSocket: Неверный токен');
           return next(new Error('Invalid token'));
         }
         
         if (error.name === 'TokenExpiredError') {
+          console.error('❌ WebSocket: Токен истек');
           return next(new Error('Token expired'));
         }
 
+        console.error('❌ WebSocket: Ошибка аутентификации');
         next(new Error('Authentication failed'));
       }
     });
@@ -79,8 +97,11 @@ class SocketServer {
         message: 'Connected to TaskFlow WebSocket',
         userId: socket.userId,
         socketId: socket.id,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        serverTime: new Date().toISOString()
       });
+
+      console.log(`📊 Активных подключений: ${this.io.engine.clientsCount}`);
 
       // Обработка событий от клиента
       this.setupEventHandlers(socket);
@@ -89,7 +110,7 @@ class SocketServer {
       this.sendConnectionStats();
 
       socket.on('disconnect', (reason) => {
-        console.log(`🔌 Отключение: ${socket.userId}, причина: ${reason}`);
+        console.log(`🔌 Отключение: ${socket.userId} (${socket.id}), причина: ${reason}`);
         this.handleDisconnect(socket);
       });
 
@@ -121,7 +142,8 @@ class SocketServer {
       socket.emit('project_joined', { 
         projectId, 
         room: roomName,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        message: `Присоединен к проекту ${projectId}`
       });
     });
 
@@ -165,7 +187,8 @@ class SocketServer {
       socket.emit('pong', {
         ...data,
         serverTime: new Date().toISOString(),
-        message: 'pong'
+        message: 'pong',
+        receivedAt: new Date().toISOString()
       });
     });
 
@@ -174,7 +197,16 @@ class SocketServer {
       console.log(`📨 Тестовое сообщение от ${socket.userId}:`, data);
       socket.emit('test_response', {
         received: data,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        serverTime: new Date().toISOString(),
+        message: 'Тестовое сообщение получено сервером'
+      });
+      
+      // Отправляем тестовое уведомление
+      socket.emit('test_notification', {
+        message: 'Тестовое уведомление с сервера!',
+        timestamp: new Date().toISOString(),
+        userId: socket.userId
       });
     });
   }
@@ -191,6 +223,7 @@ class SocketServer {
       }
     }
     
+    console.log(`📊 Осталось подключений: ${this.io.engine.clientsCount}`);
     this.sendConnectionStats();
   }
 
@@ -361,7 +394,8 @@ class SocketServer {
   sendTestNotification(userId, message = 'Тестовое уведомление') {
     return this.sendToUser(userId, 'test_notification', {
       message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      type: 'info'
     });
   }
 }

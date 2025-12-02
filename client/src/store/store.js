@@ -10,5 +10,3 @@ export const store = configureStore({
     tasks: tasksReducer,
   },
 });
-
-export default store;

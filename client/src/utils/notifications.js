@@ -45,4 +45,4 @@ export const showNotification = (message, type = 'info') => {
   }
 };
 
-export const NotificationContainer = ToastContainer;
+export { ToastContainer as NotificationContainer };

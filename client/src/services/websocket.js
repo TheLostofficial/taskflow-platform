@@ -15,280 +15,380 @@ class WebSocketService {
     this.socket = null;
     this.isConnecting = false;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
-    this.reconnectDelay = 1000;
-    this.notificationQueue = [];
-    this.isShowingNotification = false;
+    this.maxReconnectAttempts = 10;
+    this.reconnectDelay = 2000;
+    this.connectionTimeout = 10000;
+    this.heartbeatInterval = null;
+    this._connectionStatus = false;
+    this.userId = null;
   }
 
   connect(token) {
-    if (this.socket?.connected || this.isConnecting) {
+    // Если уже подключаемся или уже подключены, выходим
+    if (this.isConnecting || (this.socket?.connected && this._connectionStatus)) {
+      console.log('🔄 WebSocket: Уже подключен или подключается');
       return;
     }
 
+    // Если есть старый сокет, отключаем его
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+
     this.isConnecting = true;
+    this.reconnectAttempts = 0;
     
+    console.log(`🔗 WebSocket: Начинаем подключение...`);
+
     try {
-      this.socket = io(process.env.REACT_APP_WS_URL || 'ws://localhost:5000', {
+      // ИСПРАВЛЕНО: Используем WS URL вместо HTTP API URL
+      const wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:5000';
+      console.log(`🔗 WebSocket: Подключение к ${wsUrl}...`);
+      
+      this.socket = io(wsUrl, {
         auth: { token },
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: this.maxReconnectAttempts,
         reconnectionDelay: this.reconnectDelay,
+        reconnectionDelayMax: 10000,
+        timeout: this.connectionTimeout,
+        withCredentials: true,
+        // Явно указываем путь WebSocket
+        path: '/socket.io/'
       });
 
       this.setupEventListeners();
       
-      console.log('🔄 WebSocket: Connecting...');
+      // Таймаут подключения
+      setTimeout(() => {
+        if (this.isConnecting && !this._connectionStatus) {
+          console.warn('⏰ WebSocket: Таймаут подключения');
+          this.isConnecting = false;
+          this.showNotification('WebSocket', 'Таймаут подключения', 'warning');
+        }
+      }, this.connectionTimeout);
+      
     } catch (error) {
-      console.error('WebSocket connection error:', error);
+      console.error('❌ WebSocket: Ошибка при создании подключения:', error);
       this.isConnecting = false;
+      this.handleReconnect();
     }
   }
 
   setupEventListeners() {
     if (!this.socket) return;
 
-    // Connection events
+    // Успешное подключение
     this.socket.on('connect', () => {
-      console.log('✅ WebSocket: Connected');
+      console.log('✅ WebSocket: Подключено, socket ID:', this.socket.id);
+      console.log('🔌 WebSocket URL:', this.socket.io.uri);
       this.isConnecting = false;
+      this._connectionStatus = true;
       this.reconnectAttempts = 0;
+      
+      this.startHeartbeat();
+      
       this.showNotification('WebSocket', 'Подключение установлено', 'success');
     });
 
+    // Подтверждение аутентификации
     this.socket.on('connected', (data) => {
-      console.log('📡 WebSocket: Authenticated', data);
+      console.log('📡 WebSocket: Аутентифицирован', data);
+      this.userId = data.userId;
+      
+      // Тестовое сообщение после подключения
+      setTimeout(() => {
+        this.sendTestMessage();
+      }, 1000);
     });
 
+    // Отключение
     this.socket.on('disconnect', (reason) => {
-      console.log('🔌 WebSocket: Disconnected', reason);
+      console.log('🔌 WebSocket: Отключено, причина:', reason);
       this.isConnecting = false;
+      this._connectionStatus = false;
+      this.userId = null;
       
-      if (reason === 'io server disconnect') {
-        this.showNotification('WebSocket', 'Соединение разорвано сервером. Попытка переподключения...', 'warning');
+      this.stopHeartbeat();
+      
+      if (reason === 'io server disconnect' || reason === 'transport close') {
+        this.showNotification('WebSocket', 'Соединение разорвано. Попытка переподключения...', 'warning');
         setTimeout(() => {
-          this.socket.connect();
+          if (this.socket) {
+            this.socket.connect();
+          }
         }, 1000);
       }
     });
 
+    // Ошибка подключения
     this.socket.on('connect_error', (error) => {
-      console.error('❌ WebSocket: Connection error', error.message);
+      console.error('❌ WebSocket: Ошибка подключения:', error.message);
+      console.error('❌ WebSocket error details:', error);
       this.isConnecting = false;
+      this._connectionStatus = false;
       this.reconnectAttempts++;
       
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         this.showNotification('WebSocket', 'Не удалось подключиться. Проверьте интернет-соединение.', 'error');
-        console.warn('⚠️ WebSocket: Max reconnection attempts reached');
+        console.warn('⚠️ WebSocket: Достигнут лимит попыток переподключения');
       } else {
-        this.showNotification('WebSocket', `Попытка подключения ${this.reconnectAttempts}/${this.maxReconnectAttempts}`, 'warning');
+        console.log(`🔄 WebSocket: Попытка переподключения ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
       }
     });
 
-    // Project events
+    this.socket.on('error', (error) => {
+      console.error('❌ WebSocket: Ошибка:', error);
+      this.showNotification('WebSocket', `Ошибка: ${error.message || 'Неизвестная ошибка'}`, 'error');
+    });
+
+    this.socket.on('pong', (data) => {
+      console.log('🏓 WebSocket: Pong получен', data);
+    });
+
+    this.socket.on('test_response', (data) => {
+      console.log('🧪 WebSocket: Тестовый ответ:', data);
+    });
+
+    this.socket.on('test_notification', (data) => {
+      console.log('🔔 WebSocket: Тестовое уведомление:', data);
+      this.showNotification('Тест WebSocket', data.message, 'info');
+    });
+
+    // Присоединение к комнате проекта
+    this.socket.on('project_joined', (data) => {
+      console.log('🎯 WebSocket: Присоединен к проекту', data);
+    });
+
+    // Бизнес-события
     this.socket.on('project_updated', (data) => {
-      console.log('📤 WebSocket: Project updated', data);
+      console.log('📤 WebSocket: Проект обновлен', data);
       
-      // Обновляем список проектов
       store.dispatch(fetchProjects());
       
-      // Если открыт конкретный проект - обновляем его
       if (data.project && data.project._id) {
         store.dispatch(fetchProjectById(data.project._id));
       }
       
-      // Показываем уведомление, если обновление сделано не текущим пользователем
-      if (data.updatedBy && data.updatedBy !== store.getState().auth.user?._id) {
-        this.showNotification('Проект обновлен', `Проект "${data.project?.name}" был обновлен другим пользователем`, 'info');
+      const currentUserId = store.getState().auth.user?._id;
+      if (data.updatedBy && data.updatedBy !== currentUserId) {
+        this.showNotification('Проект обновлен', `Проект "${data.project?.name}" был обновлен`, 'info');
       }
     });
 
     this.socket.on('project_deleted', (data) => {
-      console.log('🗑️ WebSocket: Project deleted', data);
-      // Обновляем список проектов
+      console.log('🗑️ WebSocket: Проект удален', data);
       store.dispatch(fetchProjects());
-      
-      // Показываем уведомление
       this.showNotification('Проект удален', `Проект был удален`, 'warning');
     });
 
     this.socket.on('project_invite', (data) => {
-      console.log('📨 WebSocket: Project invite received', data);
-      this.showNotification('Приглашение в проект', `Вас приглашают в проект "${data.project.name}" от ${data.invitedBy.name}`, 'info');
+      console.log('📨 WebSocket: Приглашение в проект', data);
+      this.showNotification('Приглашение в проект', 
+        `Вас приглашают в проект "${data.project.name}" от ${data.invitedBy.name}`, 
+        'info');
     });
 
-    this.socket.on('project_joined', (data) => {
-      console.log('🎯 WebSocket: Joined project room', data);
-    });
-
-    // Task events
     this.socket.on('task_created', (data) => {
-      console.log('📝 WebSocket: Task created', data);
+      console.log('📝 WebSocket: Задача создана', data);
       
-      // Добавляем задачу в Redux store через socket action
       if (data.task) {
         store.dispatch(addTaskFromSocket(data.task));
       }
       
-      // Обновляем проект, чтобы задачи обновились
       if (data.task && data.task.project) {
         store.dispatch(fetchProjectById(data.task.project));
       }
       
-      // Показываем уведомление, если задача создана другим пользователем
-      if (data.createdBy && data.createdBy !== store.getState().auth.user?._id) {
+      const currentUserId = store.getState().auth.user?._id;
+      if (data.createdBy && data.createdBy !== currentUserId) {
         this.showNotification('Новая задача', `Добавлена задача "${data.task?.title}"`, 'info');
       }
     });
 
     this.socket.on('task_updated', (data) => {
-      console.log('✏️ WebSocket: Task updated', data);
+      console.log('✏️ WebSocket: Задача обновлена', data);
       
-      // Обновляем задачу в Redux store
       if (data.task) {
         store.dispatch(updateTaskFromSocket(data.task));
       }
       
-      // Обновляем проект при изменении задачи
-      if (data.task && data.task.project) {
-        store.dispatch(fetchProjectById(data.task.project));
-      }
-      
-      // Показываем уведомление, если обновление сделано не текущим пользователем
-      if (data.updatedBy && data.updatedBy !== store.getState().auth.user?._id) {
+      const currentUserId = store.getState().auth.user?._id;
+      if (data.updatedBy && data.updatedBy !== currentUserId) {
         this.showNotification('Задача обновлена', `Задача "${data.task?.title}" была обновлена`, 'info');
       }
     });
 
     this.socket.on('task_deleted', (data) => {
-      console.log('🗑️ WebSocket: Task deleted', data);
+      console.log('🗑️ WebSocket: Задача удалена', data);
       
-      // Удаляем задачу из Redux store
       if (data.taskId) {
         store.dispatch(deleteTaskFromSocket(data.taskId));
       }
       
-      // Обновляем проект при удалении задачи
-      if (data.projectId) {
-        store.dispatch(fetchProjectById(data.projectId));
-      }
-      
-      // Показываем уведомление
-      if (data.deletedBy && data.deletedBy !== store.getState().auth.user?._id) {
+      const currentUserId = store.getState().auth.user?._id;
+      if (data.deletedBy && data.deletedBy !== currentUserId) {
         this.showNotification('Задача удалена', 'Задача была удалена другим пользователем', 'warning');
       }
     });
 
     this.socket.on('task_commented', (data) => {
-      console.log('💬 WebSocket: Task commented', data);
-      // Обновляем проект при добавлении комментария
+      console.log('💬 WebSocket: Комментарий к задаче', data);
+      
       if (data.projectId) {
         store.dispatch(fetchProjectById(data.projectId));
       }
       
-      // Показываем уведомление, если комментарий добавлен другим пользователем
-      if (data.addedBy && data.addedBy !== store.getState().auth.user?._id) {
+      const currentUserId = store.getState().auth.user?._id;
+      if (data.addedBy && data.addedBy !== currentUserId) {
         this.showNotification('Новый комментарий', 'Добавлен комментарий к задаче', 'info');
       }
     });
 
     this.socket.on('comment_added', (data) => {
-      console.log('💬 WebSocket: Comment added to task', data);
-      // Можно добавить более специфичную логику для комментариев
+      console.log('💬 WebSocket: Комментарий добавлен', data);
     });
 
-    // User events
-    this.socket.on('mentioned', (data) => {
-      console.log('🔔 WebSocket: You were mentioned', data);
-      this.showNotification('Упоминание', `Вас упомянули в комментарии к задаче`, 'warning');
-    });
-
-    // Utility events
-    this.socket.on('pong', (data) => {
-      console.log('🏓 WebSocket: Pong received', data);
-    });
-
-    // Member events
     this.socket.on('member_joined', (data) => {
-      console.log('👤 WebSocket: Member joined project', data);
-      if (data.userId !== store.getState().auth.user?._id) {
-        this.showNotification('Новый участник', `К проекту присоединился новый участник`, 'info');
+      console.log('👤 WebSocket: Участник присоединился', data);
+      const currentUserId = store.getState().auth.user?._id;
+      if (data.userId !== currentUserId) {
+        this.showNotification('Новый участник', 'К проекту присоединился новый участник', 'info');
       }
     });
 
     this.socket.on('member_left', (data) => {
-      console.log('👋 WebSocket: Member left project', data);
-      this.showNotification('Участник вышел', `Участник покинул проект`, 'warning');
+      console.log('👋 WebSocket: Участник покинул', data);
+      this.showNotification('Участник вышел', 'Участник покинул проект', 'warning');
+    });
+
+    this.socket.on('mentioned', (data) => {
+      console.log('🔔 WebSocket: Вас упомянули', data);
+      this.showNotification('Упоминание', 'Вас упомянули в комментарии', 'warning');
+    });
+
+    this.socket.on('notification', (data) => {
+      console.log('🔔 WebSocket: Уведомление:', data);
+      this.showNotification(data.title || 'Уведомление', data.message, data.type || 'info');
     });
   }
 
-  // Public methods
+  startHeartbeat() {
+    this.stopHeartbeat();
+    
+    this.heartbeatInterval = setInterval(() => {
+      if (this.socket?.connected) {
+        this.sendPing();
+      }
+    }, 30000);
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
   joinProject(projectId) {
     if (this.socket?.connected && projectId) {
       this.socket.emit('join_project', projectId);
-      console.log(`📡 WebSocket: Joined project ${projectId}`);
+      console.log(`📡 WebSocket: Присоединяемся к проекту ${projectId}`);
+    } else {
+      console.warn(`⚠️ WebSocket: Не могу присоединиться к проекту ${projectId} - сокет не подключен`);
     }
   }
 
   leaveProject(projectId) {
     if (this.socket?.connected && projectId) {
       this.socket.emit('leave_project', projectId);
-      console.log(`👋 WebSocket: Left project ${projectId}`);
+      console.log(`👋 WebSocket: Покидаем проект ${projectId}`);
     }
   }
 
   joinTask(taskId) {
     if (this.socket?.connected && taskId) {
       this.socket.emit('join_task', taskId);
-      console.log(`📡 WebSocket: Joined task ${taskId}`);
+      console.log(`📡 WebSocket: Присоединяемся к задаче ${taskId}`);
     }
   }
 
   leaveTask(taskId) {
     if (this.socket?.connected && taskId) {
       this.socket.emit('leave_task', taskId);
-      console.log(`👋 WebSocket: Left task ${taskId}`);
+      console.log(`👋 WebSocket: Покидаем задачу ${taskId}`);
     }
   }
 
   sendPing() {
     if (this.socket?.connected) {
-      this.socket.emit('ping', { timestamp: Date.now() });
+      this.socket.emit('ping', { 
+        timestamp: Date.now(),
+        clientTime: new Date().toISOString()
+      });
+    }
+  }
+
+  sendTestMessage() {
+    if (this.socket?.connected) {
+      this.socket.emit('test_message', { 
+        message: 'Тестовое сообщение от клиента',
+        timestamp: new Date().toISOString()
+      });
+      console.log('🧪 WebSocket: Отправлено тестовое сообщение');
+    } else {
+      console.warn('⚠️ WebSocket: Не могу отправить тестовое сообщение - сокет не подключен');
     }
   }
 
   disconnect() {
     if (this.socket) {
+      this.stopHeartbeat();
       this.socket.disconnect();
       this.socket = null;
-      console.log('🔌 WebSocket: Disconnected manually');
+      this._connectionStatus = false;
+      this.userId = null;
+      console.log('🔌 WebSocket: Соединение закрыто вручную');
       this.showNotification('WebSocket', 'Соединение закрыто', 'info');
     }
   }
 
   isConnected() {
-    return this.socket?.connected || false;
+    return this.socket?.connected && this._connectionStatus;
   }
 
   getSocketId() {
     return this.socket?.id;
   }
 
-  // Helper method for notifications
-  showNotification(title, message, type = 'info') {
-    const notification = this.createNotificationElement(title, message, type);
-    
-    // Добавляем в очередь
-    this.notificationQueue.push({ notification, type });
-    
-    // Показываем следующее уведомление, если не показываем сейчас
-    if (!this.isShowingNotification) {
-      this.showNextNotification();
+  getUserId() {
+    return this.userId;
+  }
+
+  handleReconnect() {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      setTimeout(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+          console.log(`🔄 WebSocket: Попытка переподключения ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts}`);
+          this.connect(token);
+        }
+      }, this.reconnectDelay);
     }
   }
 
-  createNotificationElement(title, message, type) {
+  showNotification(title, message, type = 'info') {
+    console.log(`🔔 [${type.toUpperCase()}] ${title}: ${message}`);
+    
+    if (type === 'error') {
+      console.error(title, message);
+    } else if (type === 'warning') {
+      console.warn(title, message);
+    }
+    
+    // Создаем уведомление в DOM
     const notification = document.createElement('div');
     
     const typeClasses = {
@@ -331,60 +431,35 @@ class WebSocketService {
       </div>
     `;
 
-    // Добавляем в body
     document.body.appendChild(notification);
 
-    // Анимация появления
     setTimeout(() => {
       notification.style.transform = 'translateX(0)';
       notification.style.opacity = '1';
     }, 10);
 
-    // Автоматическое скрытие через 5 секунд
     setTimeout(() => {
-      this.hideNotification(notification);
+      notification.style.transform = 'translateX(100%)';
+      notification.style.opacity = '0';
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+      }, 300);
     }, 5000);
 
-    // Обработчик закрытия
     const closeBtn = notification.querySelector('.btn-close');
     closeBtn.addEventListener('click', () => {
-      this.hideNotification(notification);
+      notification.style.transform = 'translateX(100%)';
+      notification.style.opacity = '0';
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+      }, 300);
     });
-
-    return notification;
   }
 
-  hideNotification(notification) {
-    notification.style.transform = 'translateX(100%)';
-    notification.style.opacity = '0';
-    
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.parentNode.removeChild(notification);
-      }
-      this.isShowingNotification = false;
-      this.showNextNotification();
-    }, 300);
-  }
-
-  showNextNotification() {
-    if (this.notificationQueue.length === 0) {
-      this.isShowingNotification = false;
-      return;
-    }
-
-    this.isShowingNotification = true;
-    const { notification } = this.notificationQueue.shift();
-    
-    // Уведомление уже показано при создании
-    // Просто обновляем флаг, что показываем следующее
-    setTimeout(() => {
-      this.isShowingNotification = false;
-      this.showNextNotification();
-    }, 100);
-  }
-
-  // Request notification permissions
   requestNotificationPermission() {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().then(permission => {
@@ -392,8 +467,24 @@ class WebSocketService {
       });
     }
   }
+
+  // Метод для отладки
+  debug() {
+    return {
+      connected: this.isConnected(),
+      socketId: this.getSocketId(),
+      userId: this.getUserId(),
+      isConnecting: this.isConnecting,
+      reconnectAttempts: this.reconnectAttempts,
+      socket: this.socket ? {
+        id: this.socket.id,
+        connected: this.socket.connected,
+        disconnected: this.socket.disconnected,
+        uri: this.socket.io?.uri
+      } : null
+    };
+  }
 }
 
-// Экспортируем singleton instance
 const websocketService = new WebSocketService();
 export default websocketService;
