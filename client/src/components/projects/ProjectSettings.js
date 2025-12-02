@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Row, Col, Card, Form, Button, Alert, Tabs, Tab, Badge } from 'react-bootstrap';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { updateProject, deleteProject } from '../../store/slices/projectsSlice';
 import ProjectInvites from './ProjectInvites';
+import exportService from '../../services/exportService';
 
 const ProjectSettings = ({ project }) => {
   const dispatch = useDispatch();
@@ -12,6 +13,9 @@ const ProjectSettings = ({ project }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  const { items: tasks } = useSelector(state => state.tasks);
+  const { user } = useSelector(state => state.auth);
 
   const [generalSettings, setGeneralSettings] = useState({
     name: project.name,
@@ -29,13 +33,9 @@ const ProjectSettings = ({ project }) => {
     confirmDelete: ''
   });
 
-  const isOwner = project.owner._id === project.owner?._id || 
-                  (project.members.some(member => 
-                    member.user?._id === project.owner?._id && 
-                    member.role === 'owner'));
-
+  const isOwner = project.owner._id === user?._id;
   const isAdmin = project.members.some(member => 
-    member.user?._id === project.owner?._id && 
+    member.user?._id === user?._id && 
     (member.role === 'owner' || member.role === 'admin')
   );
 
@@ -67,6 +67,7 @@ const ProjectSettings = ({ project }) => {
           description: generalSettings.description,
           tags: tagsArray,
           settings: {
+            ...project.settings,
             isPublic: generalSettings.isPublic
           }
         }
@@ -91,6 +92,7 @@ const ProjectSettings = ({ project }) => {
         projectId: project._id,
         projectData: {
           settings: {
+            ...project.settings,
             template: templateSettings.template,
             columns: columnsArray
           }
@@ -146,6 +148,33 @@ const ProjectSettings = ({ project }) => {
       } catch (error) {
         showMessage(error.message || 'Ошибка при удалении проекта', 'error');
       }
+    }
+  };
+
+  const handleExportCSV = () => {
+    try {
+      exportService.exportTasksToCSV(tasks, project.name);
+      showMessage('Задачи экспортированы в CSV');
+    } catch (error) {
+      showMessage(error.message || 'Ошибка при экспорте', 'error');
+    }
+  };
+
+  const handleExportJSON = () => {
+    try {
+      exportService.exportTasksToJSON(tasks, project.name);
+      showMessage('Задачи экспортированы в JSON');
+    } catch (error) {
+      showMessage(error.message || 'Ошибка при экспорте', 'error');
+    }
+  };
+
+  const handleExportFullProject = () => {
+    try {
+      exportService.exportProjectData(project, tasks);
+      showMessage('Полный экспорт проекта завершен');
+    } catch (error) {
+      showMessage(error.message || 'Ошибка при экспорте', 'error');
     }
   };
 
@@ -282,6 +311,88 @@ const ProjectSettings = ({ project }) => {
           />
         </Tab>
 
+        <Tab eventKey="export" title="Экспорт данных">
+          <Card>
+            <Card.Header>
+              <h5 className="mb-0">Экспорт данных проекта</h5>
+            </Card.Header>
+            <Card.Body>
+              <div className="mb-4">
+                <h6>Экспорт задач</h6>
+                <p className="text-muted">
+                  Скачайте задачи проекта в различных форматах для анализа или резервного копирования.
+                </p>
+                <div className="d-flex flex-wrap gap-2 mb-3">
+                  <Button 
+                    variant="outline-success"
+                    onClick={handleExportCSV}
+                    disabled={tasks.length === 0}
+                  >
+                    📊 Экспорт задач (CSV)
+                  </Button>
+                  <Button 
+                    variant="outline-primary"
+                    onClick={handleExportJSON}
+                    disabled={tasks.length === 0}
+                  >
+                    📋 Экспорт задач (JSON)
+                  </Button>
+                </div>
+                {tasks.length === 0 && (
+                  <Alert variant="info" className="mt-2">
+                    Нет задач для экспорта
+                  </Alert>
+                )}
+                {tasks.length > 0 && (
+                  <p className="text-muted small">
+                    Будет экспортировано {tasks.length} задач
+                  </p>
+                )}
+              </div>
+
+              <div className="mb-4">
+                <h6>Полный экспорт проекта</h6>
+                <p className="text-muted">
+                  Экспортируйте все данные проекта включая настройки, участников и задачи.
+                </p>
+                <Button 
+                  variant="outline-info"
+                  onClick={handleExportFullProject}
+                >
+                  📦 Полный экспорт проекта (JSON)
+                </Button>
+              </div>
+
+              <div className="mt-4">
+                <h6>Информация о проекте</h6>
+                <table className="table table-sm">
+                  <tbody>
+                    <tr>
+                      <td><strong>Всего задач:</strong></td>
+                      <td>{tasks.length}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Участников:</strong></td>
+                      <td>{project.members.length}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Дата создания:</strong></td>
+                      <td>{new Date(project.createdAt).toLocaleDateString('ru-RU')}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Статус:</strong></td>
+                      <td className="text-capitalize">
+                        {project.status === 'active' ? 'активный' : 
+                         project.status === 'archived' ? 'архивный' : 'завершенный'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </Card.Body>
+          </Card>
+        </Tab>
+
         <Tab eventKey="danger" title="Опасные настройки">
           <Card>
             <Card.Header className="bg-danger text-white">
@@ -302,16 +413,6 @@ const ProjectSettings = ({ project }) => {
               </div>
 
               <div className="mb-4">
-                <h6>Экспорт данных</h6>
-                <p className="text-muted">
-                  Скачайте все данные проекта в формате JSON для резервного копирования.
-                </p>
-                <Button variant="outline-info">
-                  Экспортировать данные
-                </Button>
-              </div>
-
-              <div>
                 <h6 className="text-danger">Удалить проект</h6>
                 <p className="text-muted">
                   Это действие нельзя отменить. Все задачи, настройки и данные проекта будут удалены безвозвратно.

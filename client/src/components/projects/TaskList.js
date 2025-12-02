@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Button, Badge, Form, Spinner, Alert } from 'react-bootstrap';
+import { Row, Col, Card, Button, Badge, Form, Spinner, Alert, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchProjectTasks, createTask, updateTask, deleteTask } from '../../store/slices/tasksSlice';
 import TaskDetailModal from './TaskDetailModal';
+import TaskFilters from './TaskFilters';
+import exportService from '../../services/exportService';
 
 const TaskList = ({ project, canEdit }) => {
   const dispatch = useDispatch();
@@ -11,6 +13,8 @@ const TaskList = ({ project, canEdit }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
+  const [filteredTasks, setFilteredTasks] = useState([]);
+  const [showFilters, setShowFilters] = useState(false);
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -23,6 +27,10 @@ const TaskList = ({ project, canEdit }) => {
       dispatch(fetchProjectTasks(project._id));
     }
   }, [dispatch, project._id]);
+
+  useEffect(() => {
+    setFilteredTasks(tasks);
+  }, [tasks]);
 
   const handleCreateTask = async (e) => {
     e.preventDefault();
@@ -67,6 +75,10 @@ const TaskList = ({ project, canEdit }) => {
     }
   };
 
+  const handleFilterChange = (filtered, filters) => {
+    setFilteredTasks(filtered);
+  };
+
   const getPriorityVariant = (priority) => {
     switch (priority) {
       case 'low': return 'success';
@@ -87,9 +99,25 @@ const TaskList = ({ project, canEdit }) => {
     }
   };
 
+  const handleExportCSV = () => {
+    try {
+      exportService.exportTasksToCSV(tasks, project.name);
+    } catch (error) {
+      console.error('Export error:', error);
+    }
+  };
+
+  const handleExportJSON = () => {
+    try {
+      exportService.exportTasksToJSON(tasks, project.name);
+    } catch (error) {
+      console.error('Export error:', error);
+    }
+  };
+
   const tasksByStatus = {};
   project.settings.columns.forEach(column => {
-    tasksByStatus[column] = tasks.filter(task => task.status === column);
+    tasksByStatus[column] = filteredTasks.filter(task => task.status === column);
   });
 
   if (loading) {
@@ -108,17 +136,52 @@ const TaskList = ({ project, canEdit }) => {
       {error && <Alert variant="danger">{error}</Alert>}
 
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h5>Задачи проекта</h5>
-        {canEdit && (
-          <Button 
-            variant="primary" 
-            size="sm"
-            onClick={() => setShowCreateForm(true)}
-          >
-            + Создать задачу
-          </Button>
-        )}
+        <h5>Задачи проекта ({filteredTasks.length} из {tasks.length})</h5>
+        <div className="d-flex gap-2">
+          <ButtonGroup>
+            <Button 
+              variant="outline-secondary" 
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              {showFilters ? 'Скрыть фильтры' : 'Показать фильтры'}
+            </Button>
+            
+            <Dropdown>
+              <Dropdown.Toggle variant="outline-info" size="sm" id="export-dropdown">
+                📤 Экспорт
+              </Dropdown.Toggle>
+              <Dropdown.Menu>
+                <Dropdown.Item onClick={handleExportCSV} disabled={tasks.length === 0}>
+                  Экспорт в CSV
+                </Dropdown.Item>
+                <Dropdown.Item onClick={handleExportJSON} disabled={tasks.length === 0}>
+                  Экспорт в JSON
+                </Dropdown.Item>
+              </Dropdown.Menu>
+            </Dropdown>
+          </ButtonGroup>
+          
+          {canEdit && (
+            <Button 
+              variant="primary" 
+              size="sm"
+              onClick={() => setShowCreateForm(true)}
+            >
+              + Создать задачу
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Компонент фильтров */}
+      {showFilters && (
+        <TaskFilters 
+          tasks={tasks}
+          onFilterChange={handleFilterChange}
+          projectMembers={project.members}
+        />
+      )}
 
       {/* Форма создания задачи */}
       {showCreateForm && (
