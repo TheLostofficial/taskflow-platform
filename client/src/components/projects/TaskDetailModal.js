@@ -130,6 +130,11 @@ const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDel
 
   if (!task) return null;
 
+  // ФИКС: Создаем копию массива activityLog для сортировки
+  const sortedActivityLog = task.activityLog 
+    ? [...task.activityLog].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    : [];
+
   return (
     <Modal show={show} onHide={onHide} size="lg" centered>
       <Modal.Header closeButton>
@@ -376,39 +381,37 @@ const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDel
                   {/* Вкладка активности */}
                   <Tab.Pane eventKey="activity">
                     <h5>История активности</h5>
-                    {task.activityLog && task.activityLog.length > 0 ? (
+                    {sortedActivityLog.length > 0 ? (
                       <div className="timeline">
-                        {task.activityLog
-                          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                          .map((activity, index) => (
-                            <div key={index} className="d-flex mb-3">
-                              <div className="flex-shrink-0">
-                                <div 
-                                  className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
-                                  style={{ width: '32px', height: '32px', fontSize: '14px' }}
-                                >
-                                  {activity.type === 'created' ? '📝' : 
-                                   activity.type === 'updated' ? '✏️' :
-                                   activity.type === 'status_changed' ? '🔄' :
-                                   activity.type === 'assigned' ? '👤' :
-                                   activity.type === 'commented' ? '💬' : '📎'}
-                                </div>
-                              </div>
-                              <div className="flex-grow-1 ms-3">
-                                <div className="fw-medium">
-                                  {activity.type === 'created' && 'Задача создана'}
-                                  {activity.type === 'updated' && 'Задача обновлена'}
-                                  {activity.type === 'status_changed' && 'Статус изменен'}
-                                  {activity.type === 'assigned' && 'Исполнитель назначен'}
-                                  {activity.type === 'commented' && 'Добавлен комментарий'}
-                                  {activity.type === 'attachment_added' && 'Добавлено вложение'}
-                                </div>
-                                <small className="text-muted">
-                                  {new Date(activity.timestamp).toLocaleString('ru-RU')}
-                                </small>
+                        {sortedActivityLog.map((activity, index) => (
+                          <div key={index} className="d-flex mb-3">
+                            <div className="flex-shrink-0">
+                              <div 
+                                className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
+                                style={{ width: '32px', height: '32px', fontSize: '14px' }}
+                              >
+                                {activity.type === 'created' ? '📝' : 
+                                 activity.type === 'updated' ? '✏️' :
+                                 activity.type === 'status_changed' ? '🔄' :
+                                 activity.type === 'assigned' ? '👤' :
+                                 activity.type === 'commented' ? '💬' : '📎'}
                               </div>
                             </div>
-                          ))}
+                            <div className="flex-grow-1 ms-3">
+                              <div className="fw-medium">
+                                {activity.type === 'created' && 'Задача создана'}
+                                {activity.type === 'updated' && 'Задача обновлена'}
+                                {activity.type === 'status_changed' && 'Статус изменен'}
+                                {activity.type === 'assigned' && 'Исполнитель назначен'}
+                                {activity.type === 'commented' && 'Добавлен комментарий'}
+                                {activity.type === 'attachment_added' && 'Добавлено вложение'}
+                              </div>
+                              <small className="text-muted">
+                                {new Date(activity.timestamp).toLocaleString('ru-RU')}
+                              </small>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <p className="text-muted">История активности отсутствует</p>
