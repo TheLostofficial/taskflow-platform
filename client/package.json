@@ -15,7 +15,9 @@
     "react",
     "taskflow",
     "project-management",
-    "redux"
+    "redux",
+    "websocket",
+    "real-time"
   ],
   "author": "ИмяЗаказчика",
   "license": "MIT",
@@ -53,5 +55,6 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  }
+  },
+  "proxy": "http://localhost:5000"
 }

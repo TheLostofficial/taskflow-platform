@@ -1,4 +1,3 @@
-// client/src/components/common/Footer.js
 import React from 'react';
 import { Container } from 'react-bootstrap';
 

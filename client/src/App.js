@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import { Container } from 'react-bootstrap';
 import { useDispatch, useSelector } from 'react-redux';
 import { getCurrentUser } from './store/slices/authSlice';
+import websocketService from './services/websocket';
 
 import Header from './components/common/Header';
 import Footer from './components/common/Footer';
@@ -19,13 +20,35 @@ import InvitePage from './pages/InvitePage';
 
 function App() {
   const dispatch = useDispatch();
-  const { token, isAuthenticated } = useSelector(state => state.auth);
+  const { token, isAuthenticated, user } = useSelector(state => state.auth);
 
   useEffect(() => {
+    websocketService.requestNotificationPermission();
+
     if (token && isAuthenticated) {
       dispatch(getCurrentUser());
     }
   }, [dispatch, token, isAuthenticated]);
+
+  // WebSocket connection management
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      websocketService.connect(token);
+      
+      const pingInterval = setInterval(() => {
+        if (websocketService.isConnected()) {
+          websocketService.sendPing();
+        }
+      }, 30000); // Каждые 30 секунд
+
+      return () => {
+        clearInterval(pingInterval);
+        websocketService.disconnect();
+      };
+    } else {
+      websocketService.disconnect();
+    }
+  }, [isAuthenticated, token]);
 
   return (
     <div className="App d-flex flex-column min-vh-100">
@@ -36,7 +59,7 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
-            <Route path="/invite/:code" element={<InvitePage />} /> {/* Новый маршрут для инвайтов */}
+            <Route path="/invite/:code" element={<InvitePage />} />
             <Route 
               path="/dashboard" 
               element={

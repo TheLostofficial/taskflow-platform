@@ -4,6 +4,7 @@ import { Container, Row, Col, Spinner, Alert, Button } from 'react-bootstrap';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchProjectById, clearCurrentProject } from '../store/slices/projectsSlice';
 import { fetchProjectTasks, clearTasks } from '../store/slices/tasksSlice';
+import websocketService from '../services/websocket';
 
 import ProjectHeader from '../components/projects/ProjectHeader';
 import ProjectTabs from '../components/projects/ProjectTabs';
@@ -18,7 +19,22 @@ const ProjectDetailPage = () => {
   const { user } = useSelector(state => state.auth);
   
   const [activeTab, setActiveTab] = useState('overview');
+  const [socketConnected, setSocketConnected] = useState(false);
 
+  // WebSocket management
+  useEffect(() => {
+    if (projectId && websocketService.isConnected()) {
+      websocketService.joinProject(projectId);
+      setSocketConnected(true);
+      
+      return () => {
+        websocketService.leaveProject(projectId);
+        setSocketConnected(false);
+      };
+    }
+  }, [projectId]);
+
+  // Fetch project data
   useEffect(() => {
     if (projectId) {
       dispatch(fetchProjectById(projectId));
@@ -43,6 +59,11 @@ const ProjectDetailPage = () => {
           <span className="visually-hidden">Загрузка проекта...</span>
         </Spinner>
         <p className="mt-2">Загрузка проекта...</p>
+        {!socketConnected && (
+          <Alert variant="warning" className="mt-3">
+            <small>Real-time обновления не активны</small>
+          </Alert>
+        )}
       </Container>
     );
   }
@@ -96,6 +117,23 @@ const ProjectDetailPage = () => {
 
   return (
     <Container fluid className="py-4">
+      {/* WebSocket Status Indicator */}
+      {websocketService.isConnected() ? (
+        <Alert variant="success" className="mb-3 py-2">
+          <div className="d-flex align-items-center">
+            <span className="badge bg-success me-2">●</span>
+            <small>Real-time обновления активны</small>
+          </div>
+        </Alert>
+      ) : (
+        <Alert variant="warning" className="mb-3 py-2">
+          <div className="d-flex align-items-center">
+            <span className="badge bg-warning me-2">●</span>
+            <small>Real-time обновления не активны. Обновления будут через перезагрузку.</small>
+          </div>
+        </Alert>
+      )}
+
       <Row>
         <Col>
           <ProjectHeader 

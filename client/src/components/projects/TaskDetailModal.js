@@ -3,6 +3,7 @@ import { Modal, Tab, Nav, Row, Col, Form, Button, Badge, Alert, Spinner } from '
 import { useDispatch, useSelector } from 'react-redux';
 import { updateTask } from '../../store/slices/tasksSlice';
 import TaskComments from './TaskComments';
+import websocketService from '../../services/websocket';
 
 const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDeleted }) => {
   const dispatch = useDispatch();
@@ -21,6 +22,73 @@ const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDel
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // WebSocket: Join task room for real-time updates
+  useEffect(() => {
+    if (task && show && websocketService.isConnected()) {
+      websocketService.joinTask(task._id);
+      
+      return () => {
+        websocketService.leaveTask(task._id);
+      };
+    }
+  }, [task, show]);
+
+  // WebSocket: Listen for real-time updates
+  useEffect(() => {
+    if (!websocketService.socket) return;
+
+    const handleTaskUpdated = (data) => {
+      if (data.task && data.task._id === task?._id && data.updatedBy !== user?._id) {
+        // Task was updated by another user - refresh data
+        if (onTaskUpdated) {
+          onTaskUpdated();
+        }
+        if (!editMode) {
+          // Update local state if not in edit mode
+          setTaskData(prev => ({
+            ...prev,
+            title: data.task.title || prev.title,
+            description: data.task.description || prev.description,
+            status: data.task.status || prev.status,
+            priority: data.task.priority || prev.priority,
+            dueDate: data.task.dueDate ? new Date(data.task.dueDate).toISOString().split('T')[0] : prev.dueDate,
+            assignee: data.task.assignee?._id || prev.assignee
+          }));
+          
+          // Show notification
+          websocketService.showNotification(
+            'Задача обновлена', 
+            `Задача "${data.task.title}" была обновлена другим пользователем`, 
+            'info'
+          );
+        }
+      }
+    };
+
+    const handleCommentAdded = (data) => {
+      if (data.taskId === task?._id && data.addedBy !== user?._id) {
+        // Comment was added by another user
+        websocketService.showNotification(
+          'Новый комментарий', 
+          'Добавлен новый комментарий к задаче', 
+          'info'
+        );
+      }
+    };
+
+    if (task && show) {
+      websocketService.socket.on('task_updated', handleTaskUpdated);
+      websocketService.socket.on('comment_added', handleCommentAdded);
+    }
+
+    return () => {
+      if (websocketService.socket) {
+        websocketService.socket.off('task_updated', handleTaskUpdated);
+        websocketService.socket.off('comment_added', handleCommentAdded);
+      }
+    };
+  }, [task, show, user, editMode, onTaskUpdated]);
 
   useEffect(() => {
     if (task) {
@@ -88,7 +156,7 @@ const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDel
       }
 
       if (Object.keys(updateData).length > 0) {
-        await dispatch(updateTask({
+        const response = await dispatch(updateTask({
           taskId: task._id,
           taskData: updateData
         })).unwrap();
@@ -96,6 +164,11 @@ const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDel
         setSuccess('Задача обновлена');
         setTimeout(() => setSuccess(''), 3000);
         setEditMode(false);
+        
+        // Send WebSocket ping to confirm connection
+        if (websocketService.isConnected()) {
+          websocketService.sendPing();
+        }
         
         if (onTaskUpdated) {
           onTaskUpdated();
@@ -140,6 +213,11 @@ const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDel
       <Modal.Header closeButton>
         <Modal.Title>
           {editMode ? 'Редактирование задачи' : task.title}
+          {websocketService.isConnected() && (
+            <Badge bg="success" className="ms-2" style={{ fontSize: '0.6rem' }}>
+              онлайн
+            </Badge>
+          )}
         </Modal.Title>
       </Modal.Header>
       <Modal.Body className="p-0">
@@ -380,7 +458,14 @@ const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDel
 
                   {/* Вкладка активности */}
                   <Tab.Pane eventKey="activity">
-                    <h5>История активности</h5>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <h5>История активности</h5>
+                      {websocketService.isConnected() && (
+                        <Badge bg="info" className="py-1">
+                          Real-time
+                        </Badge>
+                      )}
+                    </div>
                     {sortedActivityLog.length > 0 ? (
                       <div className="timeline">
                         {sortedActivityLog.map((activity, index) => (
@@ -424,9 +509,18 @@ const TaskDetailModal = ({ show, onHide, task, project, onTaskUpdated, onTaskDel
         </Tab.Container>
       </Modal.Body>
       <Modal.Footer>
-        <Button variant="secondary" onClick={onHide}>
-          Закрыть
-        </Button>
+        <div className="d-flex justify-content-between w-100 align-items-center">
+          <small className="text-muted">
+            {websocketService.isConnected() ? (
+              <span className="text-success">● Real-time обновления активны</span>
+            ) : (
+              <span className="text-warning">● Real-time обновления не активны</span>
+            )}
+          </small>
+          <Button variant="secondary" onClick={onHide}>
+            Закрыть
+          </Button>
+        </div>
       </Modal.Footer>
     </Modal>
   );

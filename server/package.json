@@ -14,7 +14,9 @@
     "taskflow",
     "project-management",
     "express",
-    "mongodb"
+    "mongodb",
+    "websocket",
+    "real-time"
   ],
   "author": "ИмяЗаказчика",
   "license": "MIT",
