@@ -11,6 +11,13 @@ import userRoutes from './routes/users.js';
 import taskRoutes from './routes/tasks.js';
 import inviteRoutes from './routes/invites.js';
 
+import commentRoutes from './routes/comments.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 dotenv.config();
 
 const app = express();
@@ -42,6 +49,8 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api', inviteRoutes);
+app.use('/api', commentRoutes);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('*', (req, res) => {
   res.status(404).json({ message: 'API endpoint not found' });
