@@ -1,22 +1,32 @@
-// client/src/App.js
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Container } from 'react-bootstrap';
+import { useDispatch, useSelector } from 'react-redux';
+import { getCurrentUser } from './store/slices/authSlice';
 
-// Components
 import Header from './components/common/Header';
 import Footer from './components/common/Footer';
 import ProtectedRoute from './components/common/ProtectedRoute';
 
-// Pages
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import ProjectsPage from './pages/ProjectsPage';
+import ProjectDetailPage from './pages/ProjectDetailPage';
 import ProfilePage from './pages/ProfilePage';
+import InvitePage from './pages/InvitePage';
 
 function App() {
+  const dispatch = useDispatch();
+  const { token, isAuthenticated } = useSelector(state => state.auth);
+
+  useEffect(() => {
+    if (token && isAuthenticated) {
+      dispatch(getCurrentUser());
+    }
+  }, [dispatch, token, isAuthenticated]);
+
   return (
     <div className="App d-flex flex-column min-vh-100">
       <Header />
@@ -26,6 +36,7 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/invite/:code" element={<InvitePage />} /> {/* Новый маршрут для инвайтов */}
             <Route 
               path="/dashboard" 
               element={
@@ -39,6 +50,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <ProjectsPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/projects/:projectId" 
+              element={
+                <ProtectedRoute>
+                  <ProjectDetailPage />
                 </ProtectedRoute>
               } 
             />

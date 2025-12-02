@@ -1,0 +1,289 @@
+import React, { useState, useEffect } from 'react';
+import { Row, Col, Card, Button, Badge, Form, Spinner, Alert } from 'react-bootstrap';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchProjectTasks, createTask, updateTask, deleteTask } from '../../store/slices/tasksSlice';
+
+const TaskList = ({ project, canEdit }) => {
+  const dispatch = useDispatch();
+  const { items: tasks, loading, error, operationLoading } = useSelector(state => state.tasks);
+  
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newTask, setNewTask] = useState({
+    title: '',
+    description: '',
+    status: project.settings.columns[0] || 'To Do',
+    priority: 'medium'
+  });
+
+  useEffect(() => {
+    if (project._id) {
+      dispatch(fetchProjectTasks(project._id));
+    }
+  }, [dispatch, project._id]);
+
+  const handleCreateTask = async (e) => {
+    e.preventDefault();
+    if (!newTask.title.trim()) return;
+
+    try {
+      await dispatch(createTask({
+        ...newTask,
+        project: project._id
+      })).unwrap();
+
+      setNewTask({
+        title: '',
+        description: '',
+        status: project.settings.columns[0] || 'To Do',
+        priority: 'medium'
+      });
+      setShowCreateForm(false);
+    } catch (error) {
+      console.error('Failed to create task:', error);
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    if (window.confirm('Вы уверены, что хотите удалить эту задачу?')) {
+      try {
+        await dispatch(deleteTask(taskId)).unwrap();
+      } catch (error) {
+        console.error('Failed to delete task:', error);
+      }
+    }
+  };
+
+  const handleStatusChange = async (taskId, newStatus) => {
+    try {
+      await dispatch(updateTask({
+        taskId,
+        taskData: { status: newStatus }
+      })).unwrap();
+    } catch (error) {
+      console.error('Failed to update task:', error);
+    }
+  };
+
+  const getPriorityVariant = (priority) => {
+    switch (priority) {
+      case 'low': return 'success';
+      case 'medium': return 'warning';
+      case 'high': return 'danger';
+      case 'critical': return 'dark';
+      default: return 'secondary';
+    }
+  };
+
+  const getPriorityText = (priority) => {
+    switch (priority) {
+      case 'low': return 'Низкий';
+      case 'medium': return 'Средний';
+      case 'high': return 'Высокий';
+      case 'critical': return 'Критический';
+      default: return priority;
+    }
+  };
+
+  const tasksByStatus = {};
+  project.settings.columns.forEach(column => {
+    tasksByStatus[column] = tasks.filter(task => task.status === column);
+  });
+
+  if (loading) {
+    return (
+      <div className="text-center py-4">
+        <Spinner animation="border" role="status">
+          <span className="visually-hidden">Загрузка задач...</span>
+        </Spinner>
+        <p className="mt-2">Загрузка задач...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {error && <Alert variant="danger">{error}</Alert>}
+
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h5>Задачи проекта</h5>
+        {canEdit && (
+          <Button 
+            variant="primary" 
+            size="sm"
+            onClick={() => setShowCreateForm(true)}
+          >
+            + Создать задачу
+          </Button>
+        )}
+      </div>
+
+      {/* Форма создания задачи */}
+      {showCreateForm && (
+        <Card className="mb-4">
+          <Card.Header>
+            <strong>Новая задача</strong>
+          </Card.Header>
+          <Card.Body>
+            <Form onSubmit={handleCreateTask}>
+              <Row>
+                <Col md={8}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Название задачи *</Form.Label>
+                    <Form.Control
+                      type="text"
+                      value={newTask.title}
+                      onChange={(e) => setNewTask(prev => ({ ...prev, title: e.target.value }))}
+                      placeholder="Введите название задачи..."
+                      required
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={2}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Статус</Form.Label>
+                    <Form.Select
+                      value={newTask.status}
+                      onChange={(e) => setNewTask(prev => ({ ...prev, status: e.target.value }))}
+                    >
+                      {project.settings.columns.map(column => (
+                        <option key={column} value={column}>{column}</option>
+                      ))}
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+                <Col md={2}>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Приоритет</Form.Label>
+                    <Form.Select
+                      value={newTask.priority}
+                      onChange={(e) => setNewTask(prev => ({ ...prev, priority: e.target.value }))}
+                    >
+                      <option value="low">Низкий</option>
+                      <option value="medium">Средний</option>
+                      <option value="high">Высокий</option>
+                      <option value="critical">Критический</option>
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+              </Row>
+              
+              <Form.Group className="mb-3">
+                <Form.Label>Описание</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={2}
+                  value={newTask.description}
+                  onChange={(e) => setNewTask(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Опишите задачу..."
+                />
+              </Form.Group>
+
+              <div className="d-flex gap-2">
+                <Button variant="primary" type="submit" disabled={operationLoading}>
+                  {operationLoading ? 'Создание...' : 'Создать задачу'}
+                </Button>
+                <Button 
+                  variant="outline-secondary" 
+                  onClick={() => setShowCreateForm(false)}
+                >
+                  Отмена
+                </Button>
+              </div>
+            </Form>
+          </Card.Body>
+        </Card>
+      )}
+
+      {/* Kanban доска */}
+      <Row className="g-3">
+        {project.settings.columns.map(column => (
+          <Col key={column} md={4} lg={3}>
+            <Card className="h-100">
+              <Card.Header className="bg-light">
+                <div className="d-flex justify-content-between align-items-center">
+                  <strong>{column}</strong>
+                  <Badge bg="secondary">{tasksByStatus[column]?.length || 0}</Badge>
+                </div>
+              </Card.Header>
+              <Card.Body className="p-2">
+                {tasksByStatus[column]?.map(task => (
+                  <Card key={task._id} className="mb-2 shadow-sm">
+                    <Card.Body className="p-3">
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <h6 className="mb-0">{task.title}</h6>
+                        <Badge bg={getPriorityVariant(task.priority)} size="sm">
+                          {getPriorityText(task.priority)}
+                        </Badge>
+                      </div>
+                      {task.description && (
+                        <p className="small text-muted mb-2">
+                          {task.description.length > 100 
+                            ? `${task.description.substring(0, 100)}...` 
+                            : task.description
+                          }
+                        </p>
+                      )}
+                      <div className="d-flex justify-content-between align-items-center">
+                        <small className="text-muted">
+                          {new Date(task.createdAt).toLocaleDateString('ru-RU')}
+                        </small>
+                        <div className="d-flex gap-1">
+                          {canEdit && (
+                            <>
+                              <Button
+                                variant="outline-danger"
+                                size="sm"
+                                onClick={() => handleDeleteTask(task._id)}
+                              >
+                                Удалить
+                              </Button>
+                              <Form.Select
+                                size="sm"
+                                value={task.status}
+                                onChange={(e) => handleStatusChange(task._id, e.target.value)}
+                                style={{ width: 'auto' }}
+                              >
+                                {project.settings.columns.map(col => (
+                                  <option key={col} value={col}>{col}</option>
+                                ))}
+                              </Form.Select>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </Card.Body>
+                  </Card>
+                ))}
+                
+                {(!tasksByStatus[column] || tasksByStatus[column].length === 0) && (
+                  <div className="text-center text-muted py-4">
+                    <small>Задачи отсутствуют</small>
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+
+      {tasks.length === 0 && !showCreateForm && (
+        <Card className="text-center py-5">
+          <Card.Body>
+            <h5>Задачи отсутствуют</h5>
+            <p className="text-muted">Создайте первую задачу для этого проекта</p>
+            {canEdit && (
+              <Button 
+                variant="primary"
+                onClick={() => setShowCreateForm(true)}
+              >
+                Создать первую задачу
+              </Button>
+            )}
+          </Card.Body>
+        </Card>
+      )}
+    </div>
+  );
+};
+
+export default TaskList;

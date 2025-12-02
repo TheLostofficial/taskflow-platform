@@ -1,18 +1,30 @@
-// client/src/store/slices/authSlice.js
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
+import { userService } from '../../services/userService';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
-// Асинхронные действия
 export const registerUser = createAsyncThunk(
   'auth/register',
   async (userData, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/register`, userData);
-      return response.data;
+      const response = await fetch(`${API_URL}/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return rejectWithValue(data);
+      }
+
+      localStorage.setItem('token', data.token);
+      return data;
     } catch (error) {
-      return rejectWithValue(error.response.data);
+      return rejectWithValue({ message: 'Network error' });
     }
   }
 );
@@ -21,11 +33,48 @@ export const loginUser = createAsyncThunk(
   'auth/login',
   async (userData, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/login`, userData);
-      localStorage.setItem('token', response.data.token);
+      const response = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return rejectWithValue(data);
+      }
+
+      localStorage.setItem('token', data.token);
+      return data;
+    } catch (error) {
+      return rejectWithValue({ message: 'Network error' });
+    }
+  }
+);
+
+export const getCurrentUser = createAsyncThunk(
+  'auth/getCurrentUser',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await userService.getProfile();
       return response.data;
     } catch (error) {
-      return rejectWithValue(error.response.data);
+      return rejectWithValue(error.response?.data || { message: 'Failed to fetch user profile' });
+    }
+  }
+);
+
+export const updateUserProfile = createAsyncThunk(
+  'auth/updateUserProfile',
+  async (userData, { rejectWithValue }) => {
+    try {
+      const response = await userService.updateProfile(userData);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || { message: 'Failed to update profile' });
     }
   }
 );
@@ -38,6 +87,7 @@ const authSlice = createSlice({
     isAuthenticated: !!localStorage.getItem('token'),
     loading: false,
     error: null,
+    profileLoading: false,
   },
   reducers: {
     logout: (state) => {
@@ -49,44 +99,64 @@ const authSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    setUser: (state, action) => {
+      state.user = action.payload;
+    }
   },
   extraReducers: (builder) => {
-  builder
-    // Register
-    .addCase(registerUser.pending, (state) => {
-      state.loading = true;
-      state.error = null;
-    })
-    .addCase(registerUser.fulfilled, (state, action) => {
-      state.loading = false;
-      state.user = action.payload.user;
-      state.token = action.payload.token;
-      state.isAuthenticated = true;
-      // Сохраняем токен в localStorage
-      localStorage.setItem('token', action.payload.token);
-    })
-    .addCase(registerUser.rejected, (state, action) => {
-      state.loading = false;
-      state.error = action.payload?.message || 'Registration failed';
-    })
-    // Login
-    .addCase(loginUser.pending, (state) => {
-      state.loading = true;
-      state.error = null;
-    })
-    .addCase(loginUser.fulfilled, (state, action) => {
-      state.loading = false;
-      state.user = action.payload.user;
-      state.token = action.payload.token;
-      state.isAuthenticated = true;
-      localStorage.setItem('token', action.payload.token);
-    })
-    .addCase(loginUser.rejected, (state, action) => {
-      state.loading = false;
-      state.error = action.payload?.message || 'Login failed';
-    });
-}
+    builder
+      .addCase(registerUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(registerUser.fulfilled, (state, action) => {
+        state.loading = false;
+        state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.isAuthenticated = true;
+      })
+      .addCase(registerUser.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload?.message || 'Registration failed';
+      })
+      .addCase(loginUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(loginUser.fulfilled, (state, action) => {
+        state.loading = false;
+        state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.isAuthenticated = true;
+      })
+      .addCase(loginUser.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload?.message || 'Login failed';
+      })
+      .addCase(getCurrentUser.pending, (state) => {
+        state.profileLoading = true;
+      })
+      .addCase(getCurrentUser.fulfilled, (state, action) => {
+        state.profileLoading = false;
+        state.user = action.payload.user;
+      })
+      .addCase(getCurrentUser.rejected, (state) => {
+        state.profileLoading = false;
+      })
+      .addCase(updateUserProfile.pending, (state) => {
+        state.profileLoading = true;
+        state.error = null;
+      })
+      .addCase(updateUserProfile.fulfilled, (state, action) => {
+        state.profileLoading = false;
+        state.user = action.payload.user;
+      })
+      .addCase(updateUserProfile.rejected, (state, action) => {
+        state.profileLoading = false;
+        state.error = action.payload?.message || 'Profile update failed';
+      });
+  }
 });
 
-export const { logout, clearError } = authSlice.actions;
+export const { logout, clearError, setUser } = authSlice.actions;
 export default authSlice.reducer;

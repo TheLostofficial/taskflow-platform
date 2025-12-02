@@ -113,7 +113,7 @@ const ProjectsPage = () => {
             </Col>
           ) : (
             projects.map(project => (
-              <Col key={project._id || project.id} md={6} lg={4}>
+              <Col key={project._id} md={6} lg={4}>
                 <Card className="h-100 shadow-sm">
                   <Card.Body className="d-flex flex-column">
                     <Card.Title>{project.name}</Card.Title>
@@ -130,7 +130,12 @@ const ProjectsPage = () => {
                     </div>
                   </Card.Body>
                   <Card.Footer>
-                    <Button variant="outline-primary" size="sm">
+                    <Button 
+                      variant="outline-primary" 
+                      size="sm"
+                      as={Link}
+                      to={`/projects/${project._id}`}
+                    >
                       Открыть
                     </Button>
                   </Card.Footer>
