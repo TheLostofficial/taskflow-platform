@@ -5,6 +5,38 @@ import Project from '../models/Project.js';
 
 const router = express.Router();
 
+// Обновляем функцию для отправки WebSocket уведомлений
+const notifyTaskCreated = (req, task) => {
+  if (req.app.get('socketServer')) {
+    req.app.get('socketServer').notifyTaskCreated(
+      task.project, 
+      task, 
+      req.user._id
+    );
+  }
+};
+
+const notifyTaskUpdated = (req, task) => {
+  if (req.app.get('socketServer')) {
+    req.app.get('socketServer').notifyTaskUpdated(
+      task.project, 
+      task, 
+      req.user._id
+    );
+  }
+};
+
+const notifyTaskDeleted = (req, projectId, taskId) => {
+  if (req.app.get('socketServer')) {
+    req.app.get('socketServer').notifyTaskDeleted(
+      projectId, 
+      taskId, 
+      req.user._id
+    );
+  }
+};
+
+// Маршруты (остаются те же, но добавляем вызовы notify)
 router.get('/project/:projectId', authenticateToken, async (req, res) => {
   try {
     const project = await Project.findOne({
@@ -71,6 +103,9 @@ router.post('/', authenticateToken, async (req, res) => {
     await task.populate('creator', 'name email');
     await task.populate('assignee', 'name email');
 
+    // Отправляем WebSocket уведомление
+    notifyTaskCreated(req, task);
+
     res.status(201).json({
       message: 'Task created successfully',
       task
@@ -114,6 +149,9 @@ router.put('/:taskId', authenticateToken, async (req, res) => {
     await task.populate('creator', 'name email');
     await task.populate('assignee', 'name email');
 
+    // Отправляем WebSocket уведомление
+    notifyTaskUpdated(req, task);
+
     res.json({
       message: 'Task updated successfully',
       task
@@ -145,7 +183,12 @@ router.delete('/:taskId', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Project not found or delete access denied' });
     }
 
+    const projectId = task.project;
+
     await Task.findByIdAndDelete(taskId);
+
+    // Отправляем WebSocket уведомление
+    notifyTaskDeleted(req, projectId, taskId);
 
     res.json({
       message: 'Task deleted successfully'

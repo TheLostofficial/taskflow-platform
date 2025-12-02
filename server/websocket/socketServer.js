@@ -9,7 +9,11 @@ class SocketServer {
         origin: process.env.CLIENT_URL || 'http://localhost:3000',
         methods: ['GET', 'POST'],
         credentials: true
-      }
+      },
+      path: '/socket.io/',
+      pingTimeout: 60000,
+      pingInterval: 25000,
+      transports: ['websocket', 'polling']
     });
 
     this.users = new Map(); // userId -> socketId
@@ -17,30 +21,44 @@ class SocketServer {
 
     this.setupMiddleware();
     this.setupConnection();
+    
+    console.log('✅ WebSocket сервер инициализирован');
   }
 
   setupMiddleware() {
     this.io.use(async (socket, next) => {
       try {
-        const token = socket.handshake.auth.token;
+        const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
         
         if (!token) {
-          return next(new Error('Authentication error'));
+          console.log('❌ WebSocket: Токен не предоставлен');
+          return next(new Error('Authentication error: Token required'));
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findById(decoded.userId).select('-password');
         
         if (!user) {
+          console.log(`❌ WebSocket: Пользователь не найден: ${decoded.userId}`);
           return next(new Error('User not found'));
         }
 
         socket.userId = user._id.toString();
         socket.user = user;
         
+        console.log(`✅ WebSocket: Аутентификация успешна для пользователя ${user.email}`);
         next();
       } catch (error) {
-        console.error('Socket auth error:', error);
+        console.error('❌ WebSocket auth error:', error.message);
+        
+        if (error.name === 'JsonWebTokenError') {
+          return next(new Error('Invalid token'));
+        }
+        
+        if (error.name === 'TokenExpiredError') {
+          return next(new Error('Token expired'));
+        }
+
         next(new Error('Authentication failed'));
       }
     });
@@ -48,137 +66,194 @@ class SocketServer {
 
   setupConnection() {
     this.io.on('connection', (socket) => {
-      console.log(`⚡ User connected: ${socket.userId}`);
+      console.log(`⚡ Новое подключение: ${socket.userId} (socket: ${socket.id})`);
 
+      // Сохраняем связь userId -> socket.id
       this.users.set(socket.userId, socket.id);
-
-      this.joinUserProjects(socket);
-
-      this.setupEventHandlers(socket);
-
+      
+      // Присоединяем пользователя к его личной комнате
+      socket.join(`user_${socket.userId}`);
+      
+      // Отправляем подтверждение подключения
       socket.emit('connected', {
         message: 'Connected to TaskFlow WebSocket',
         userId: socket.userId,
+        socketId: socket.id,
         timestamp: new Date().toISOString()
       });
 
-      socket.on('disconnect', () => {
-        console.log(`🔌 User disconnected: ${socket.userId}`);
-        this.users.delete(socket.userId);
-        this.leaveAllProjects(socket);
+      // Обработка событий от клиента
+      this.setupEventHandlers(socket);
+
+      // Отправляем статистику о подключениях
+      this.sendConnectionStats();
+
+      socket.on('disconnect', (reason) => {
+        console.log(`🔌 Отключение: ${socket.userId}, причина: ${reason}`);
+        this.handleDisconnect(socket);
+      });
+
+      socket.on('error', (error) => {
+        console.error(`❌ Socket error для ${socket.userId}:`, error);
       });
     });
   }
 
-  async joinUserProjects(socket) {
-    try {
-      socket.join(`user_${socket.userId}`);
-      
-      console.log(`📡 User ${socket.userId} joined personal room`);
-    } catch (error) {
-      console.error('Error joining user projects:', error);
-    }
-  }
-
   setupEventHandlers(socket) {
+    // Присоединение к проекту
     socket.on('join_project', (projectId) => {
-      socket.join(`project_${projectId}`);
+      if (!projectId) {
+        console.log(`⚠️  Попытка присоединения к проекту без ID от пользователя ${socket.userId}`);
+        return;
+      }
+
+      const roomName = `project_${projectId}`;
+      socket.join(roomName);
       
       if (!this.projectRooms.has(projectId)) {
         this.projectRooms.set(projectId, new Set());
       }
       this.projectRooms.get(projectId).add(socket.id);
       
-      console.log(`🚀 User ${socket.userId} joined project ${projectId}`);
-      socket.emit('project_joined', { projectId });
+      console.log(`🎯 Пользователь ${socket.userId} присоединился к проекту ${projectId}`);
+      
+      // Отправляем подтверждение клиенту
+      socket.emit('project_joined', { 
+        projectId, 
+        room: roomName,
+        timestamp: new Date().toISOString()
+      });
     });
 
+    // Выход из проекта
     socket.on('leave_project', (projectId) => {
-      socket.leave(`project_${projectId}`);
+      if (!projectId) return;
+      
+      const roomName = `project_${projectId}`;
+      socket.leave(roomName);
       
       if (this.projectRooms.has(projectId)) {
         this.projectRooms.get(projectId).delete(socket.id);
+        if (this.projectRooms.get(projectId).size === 0) {
+          this.projectRooms.delete(projectId);
+        }
       }
       
-      console.log(`👋 User ${socket.userId} left project ${projectId}`);
+      console.log(`👋 Пользователь ${socket.userId} покинул проект ${projectId}`);
     });
 
+    // Присоединение к задаче
     socket.on('join_task', (taskId) => {
-      socket.join(`task_${taskId}`);
-      console.log(`🎯 User ${socket.userId} joined task ${taskId}`);
+      if (!taskId) return;
+      
+      const roomName = `task_${taskId}`;
+      socket.join(roomName);
+      console.log(`📋 Пользователь ${socket.userId} присоединился к задаче ${taskId}`);
     });
 
+    // Выход из задачи
     socket.on('leave_task', (taskId) => {
-      socket.leave(`task_${taskId}`);
-      console.log(`👋 User ${socket.userId} left task ${taskId}`);
+      if (!taskId) return;
+      
+      const roomName = `task_${taskId}`;
+      socket.leave(roomName);
+      console.log(`👋 Пользователь ${socket.userId} покинул задачу ${taskId}`);
     });
 
+    // Ping/Pong для проверки соединения
     socket.on('ping', (data) => {
       socket.emit('pong', {
         ...data,
+        serverTime: new Date().toISOString(),
+        message: 'pong'
+      });
+    });
+
+    // Тестовое сообщение
+    socket.on('test_message', (data) => {
+      console.log(`📨 Тестовое сообщение от ${socket.userId}:`, data);
+      socket.emit('test_response', {
+        received: data,
         timestamp: new Date().toISOString()
       });
     });
   }
 
-  leaveAllProjects(socket) {
+  handleDisconnect(socket) {
+    // Удаляем из мапы пользователей
+    this.users.delete(socket.userId);
+    
+    // Удаляем из всех комнат проектов
     for (const [projectId, socketSet] of this.projectRooms) {
       socketSet.delete(socket.id);
       if (socketSet.size === 0) {
         this.projectRooms.delete(projectId);
       }
     }
+    
+    this.sendConnectionStats();
   }
 
+  sendConnectionStats() {
+    const stats = this.getStats();
+    console.log('📊 Статистика WebSocket:', stats);
+  }
+
+  // Методы для отправки уведомлений
   sendToUser(userId, event, data) {
     const socketId = this.users.get(userId);
     if (socketId) {
       this.io.to(socketId).emit(event, data);
+      console.log(`📤 Отправлено ${event} пользователю ${userId}`);
       return true;
     }
+    console.log(`⚠️  Пользователь ${userId} не подключен`);
     return false;
   }
 
   sendToProject(projectId, event, data, excludeUserId = null) {
-    const room = `project_${projectId}`;
+    const roomName = `project_${projectId}`;
     
     if (excludeUserId) {
       const excludeSocketId = this.users.get(excludeUserId);
       if (excludeSocketId) {
-        socket.to(excludeSocketId).to(room).emit(event, data);
+        this.io.to(excludeSocketId).to(roomName).emit(event, data);
       } else {
-        this.io.to(room).emit(event, data);
+        this.io.to(roomName).emit(event, data);
       }
     } else {
-      this.io.to(room).emit(event, data);
+      this.io.to(roomName).emit(event, data);
     }
     
-    console.log(`📤 Sent ${event} to project ${projectId}`);
+    console.log(`📤 Отправлено ${event} в проект ${projectId}`);
     return true;
   }
 
   sendToTask(taskId, event, data, excludeUserId = null) {
-    const room = `task_${taskId}`;
+    const roomName = `task_${taskId}`;
     
     if (excludeUserId) {
       const excludeSocketId = this.users.get(excludeUserId);
       if (excludeSocketId) {
-        socket.to(excludeSocketId).to(room).emit(event, data);
+        this.io.to(excludeSocketId).to(roomName).emit(event, data);
       } else {
-        this.io.to(room).emit(event, data);
+        this.io.to(roomName).emit(event, data);
       }
     } else {
-      this.io.to(room).emit(event, data);
+      this.io.to(roomName).emit(event, data);
     }
     
+    console.log(`📤 Отправлено ${event} в задачу ${taskId}`);
     return true;
   }
 
+  // Методы для бизнес-логики
   notifyTaskCreated(projectId, task, createdByUserId) {
     this.sendToProject(projectId, 'task_created', {
       task,
       createdBy: createdByUserId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      message: 'Новая задача создана'
     }, createdByUserId);
   }
 
@@ -186,7 +261,8 @@ class SocketServer {
     this.sendToProject(projectId, 'task_updated', {
       task,
       updatedBy: updatedByUserId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      message: 'Задача обновлена'
     }, updatedByUserId);
   }
 
@@ -194,30 +270,54 @@ class SocketServer {
     this.sendToProject(projectId, 'task_deleted', {
       taskId,
       deletedBy: deletedByUserId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      message: 'Задача удалена'
     }, deletedByUserId);
   }
 
   notifyCommentAdded(taskId, comment, projectId, addedByUserId) {
+    // Отправляем в комнату задачи
     this.sendToTask(taskId, 'comment_added', {
       comment,
       taskId,
       addedBy: addedByUserId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      message: 'Добавлен комментарий'
     }, addedByUserId);
 
+    // Отправляем в проект
     this.sendToProject(projectId, 'task_commented', {
       taskId,
       commentId: comment._id,
       addedBy: addedByUserId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      message: 'Добавлен комментарий к задаче'
     }, addedByUserId);
+  }
+
+  notifyProjectUpdated(project, updatedByUserId) {
+    this.sendToProject(project._id, 'project_updated', {
+      project,
+      updatedBy: updatedByUserId,
+      timestamp: new Date().toISOString(),
+      message: 'Проект обновлен'
+    }, updatedByUserId);
+  }
+
+  notifyProjectDeleted(projectId, deletedByUserId) {
+    this.sendToProject(projectId, 'project_deleted', {
+      projectId,
+      deletedBy: deletedByUserId,
+      timestamp: new Date().toISOString(),
+      message: 'Проект удален'
+    }, deletedByUserId);
   }
 
   notifyUserMentioned(userId, data) {
     this.sendToUser(userId, 'mentioned', {
       ...data,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      message: 'Вас упомянули'
     });
   }
 
@@ -225,16 +325,44 @@ class SocketServer {
     this.sendToUser(userId, 'project_invite', {
       project,
       invitedBy,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      message: 'Приглашение в проект'
     });
+  }
+
+  notifyMemberJoined(projectId, userId) {
+    this.sendToProject(projectId, 'member_joined', {
+      userId,
+      projectId,
+      timestamp: new Date().toISOString(),
+      message: 'Новый участник присоединился'
+    }, userId);
+  }
+
+  notifyMemberLeft(projectId, userId) {
+    this.sendToProject(projectId, 'member_left', {
+      userId,
+      projectId,
+      timestamp: new Date().toISOString(),
+      message: 'Участник покинул проект'
+    }, userId);
   }
 
   getStats() {
     return {
       totalUsers: this.users.size,
       totalProjectRooms: this.projectRooms.size,
-      activeConnections: this.io.engine.clientsCount
+      activeConnections: this.io.engine.clientsCount,
+      timestamp: new Date().toISOString()
     };
+  }
+
+  // Отладочный метод для тестирования
+  sendTestNotification(userId, message = 'Тестовое уведомление') {
+    return this.sendToUser(userId, 'test_notification', {
+      message,
+      timestamp: new Date().toISOString()
+    });
   }
 }
 
