@@ -65,6 +65,26 @@ const tasksSlice = createSlice({
     clearError: (state) => {
       state.error = null;
       state.operationError = null;
+    },
+    // Синхронные экшены для WebSocket обновлений
+    addTaskFromSocket: (state, action) => {
+      const newTask = action.payload;
+      // Проверяем, нет ли уже такой задачи
+      const exists = state.items.find(task => task._id === newTask._id);
+      if (!exists) {
+        state.items.push(newTask);
+      }
+    },
+    updateTaskFromSocket: (state, action) => {
+      const updatedTask = action.payload;
+      const index = state.items.findIndex(task => task._id === updatedTask._id);
+      if (index !== -1) {
+        state.items[index] = updatedTask;
+      }
+    },
+    deleteTaskFromSocket: (state, action) => {
+      const taskId = action.payload;
+      state.items = state.items.filter(task => task._id !== taskId);
     }
   },
   extraReducers: (builder) => {
@@ -106,5 +126,11 @@ const tasksSlice = createSlice({
   }
 });
 
-export const { clearTasks, clearError } = tasksSlice.actions;
+export const { 
+  clearTasks, 
+  clearError,
+  addTaskFromSocket,
+  updateTaskFromSocket,
+  deleteTaskFromSocket
+} = tasksSlice.actions;
 export default tasksSlice.reducer;

@@ -81,6 +81,38 @@ const projectsSlice = createSlice({
     },
     clearOperationError: (state) => {
       state.operationError = null;
+    },
+    // Синхронные экшены для WebSocket обновлений
+    addProjectFromSocket: (state, action) => {
+      const newProject = action.payload;
+      // Проверяем, нет ли уже такого проекта
+      const exists = state.items.find(project => project._id === newProject._id);
+      if (!exists) {
+        state.items.unshift(newProject);
+      }
+    },
+    updateProjectFromSocket: (state, action) => {
+      const updatedProject = action.payload;
+      
+      // Обновляем в списке проектов
+      const index = state.items.findIndex(p => p._id === updatedProject._id);
+      if (index !== -1) {
+        state.items[index] = updatedProject;
+      }
+      
+      // Обновляем текущий проект, если он открыт
+      if (state.currentProject && state.currentProject._id === updatedProject._id) {
+        state.currentProject = updatedProject;
+      }
+    },
+    deleteProjectFromSocket: (state, action) => {
+      const projectId = action.payload;
+      // Удаляем из списка проектов
+      state.items = state.items.filter(p => p._id !== projectId);
+      // Сбрасываем текущий проект, если он удален
+      if (state.currentProject && state.currentProject._id === projectId) {
+        state.currentProject = null;
+      }
     }
   },
   extraReducers: (builder) => {
@@ -131,5 +163,12 @@ const projectsSlice = createSlice({
   }
 });
 
-export const { clearCurrentProject, clearError, clearOperationError } = projectsSlice.actions;
+export const { 
+  clearCurrentProject, 
+  clearError, 
+  clearOperationError,
+  addProjectFromSocket,
+  updateProjectFromSocket,
+  deleteProjectFromSocket
+} = projectsSlice.actions;
 export default projectsSlice.reducer;

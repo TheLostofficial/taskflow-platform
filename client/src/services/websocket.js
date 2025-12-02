@@ -1,13 +1,13 @@
 import { io } from 'socket.io-client';
 import { store } from '../store/store';
 import { 
-  addTask as addTaskAction, 
-  updateTask as updateTaskAction, 
-  deleteTask as deleteTaskAction 
+  createTask, 
+  updateTask, 
+  deleteTask 
 } from '../store/slices/tasksSlice';
 import { 
-  updateProject as updateProjectAction,
-  deleteProject as deleteProjectAction
+  fetchProjects,
+  fetchProjectById
 } from '../store/slices/projectsSlice';
 
 class WebSocketService {
@@ -63,6 +63,7 @@ class WebSocketService {
       this.isConnecting = false;
       
       if (reason === 'io server disconnect') {
+        // Server initiated disconnect, need to manually reconnect
         setTimeout(() => {
           this.socket.connect();
         }, 1000);
@@ -82,52 +83,58 @@ class WebSocketService {
     // Project events
     this.socket.on('project_updated', (data) => {
       console.log('📤 WebSocket: Project updated', data);
-      if (data.project) {
-        store.dispatch(updateProjectAction(data.project));
+      // Обновляем список проектов
+      store.dispatch(fetchProjects());
+      // Если открыт конкретный проект - обновляем его
+      if (data.project && data.project._id) {
+        store.dispatch(fetchProjectById(data.project._id));
       }
     });
 
     this.socket.on('project_deleted', (data) => {
       console.log('🗑️ WebSocket: Project deleted', data);
-      if (data.projectId) {
-        store.dispatch(deleteProjectAction(data.projectId));
-      }
+      // Обновляем список проектов
+      store.dispatch(fetchProjects());
     });
 
     this.socket.on('project_invite', (data) => {
       console.log('📨 WebSocket: Project invite received', data);
+      // Можно добавить уведомление в UI
       this.showNotification('Приглашение в проект', `Вас приглашают в проект "${data.project.name}"`, 'info');
     });
 
     // Task events
     this.socket.on('task_created', (data) => {
       console.log('📝 WebSocket: Task created', data);
-      if (data.task) {
-        store.dispatch(addTaskAction(data.task));
+      // При создании задачи на клиенте обновляем список задач проекта
+      if (data.task && data.task.project) {
+        // Обновляем проект, чтобы задачи обновились
+        store.dispatch(fetchProjectById(data.task.project));
       }
     });
 
     this.socket.on('task_updated', (data) => {
       console.log('✏️ WebSocket: Task updated', data);
-      if (data.task) {
-        store.dispatch(updateTaskAction(data.task));
+      // Обновляем задачу в проекте
+      if (data.task && data.task.project) {
+        store.dispatch(fetchProjectById(data.task.project));
       }
     });
 
     this.socket.on('task_deleted', (data) => {
       console.log('🗑️ WebSocket: Task deleted', data);
-      if (data.taskId) {
-        store.dispatch(deleteTaskAction(data.taskId));
+      // Обновляем проект при удалении задачи
+      if (data.projectId) {
+        store.dispatch(fetchProjectById(data.projectId));
       }
     });
 
     this.socket.on('task_commented', (data) => {
       console.log('💬 WebSocket: Task commented', data);
-    });
-
-    // Comment events
-    this.socket.on('comment_added', (data) => {
-      console.log('💬 WebSocket: Comment added', data);
+      // Обновляем проект при добавлении комментария
+      if (data.projectId) {
+        store.dispatch(fetchProjectById(data.projectId));
+      }
     });
 
     // User events
@@ -193,17 +200,41 @@ class WebSocketService {
     return this.socket?.id;
   }
 
+  // Helper method for notifications
   showNotification(title, message, type = 'info') {
     console.log(`🔔 Notification [${type}]: ${title} - ${message}`);
     
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(title, {
-        body: message,
-        icon: '/favicon.ico'
-      });
+    // Создаем кастомное уведомление
+    if (typeof window !== 'undefined') {
+      const notification = document.createElement('div');
+      notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+      notification.style.cssText = `
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        min-width: 300px;
+        max-width: 400px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      `;
+      
+      notification.innerHTML = `
+        <strong>${title}</strong><br>
+        <small>${message}</small>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      `;
+      
+      document.body.appendChild(notification);
+      
+      // Автоматическое скрытие через 5 секунд
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.remove();
+        }
+      }, 5000);
     }
   }
 
+  // Request notification permissions
   requestNotificationPermission() {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().then(permission => {
@@ -213,5 +244,6 @@ class WebSocketService {
   }
 }
 
+// Экспортируем singleton instance
 const websocketService = new WebSocketService();
 export default websocketService;
