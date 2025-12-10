@@ -1,43 +1,63 @@
-import React, { useState } from 'react';
-import { Row, Col, Card, Form, Button, Alert, Tabs, Tab, Badge } from 'react-bootstrap';
+import React, { useState, useEffect } from 'react';
+import { Row, Col, Card, Form, Button, Alert, Tabs, Tab, Badge, Spinner, Modal } from 'react-bootstrap';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { updateProject, deleteProject } from '../../store/slices/projectsSlice';
+import { updateProject, deleteProject, archiveProject, updateMemberRole } from '../../store/slices/projectsSlice';
 import ProjectInvites from './ProjectInvites';
 import exportService from '../../services/exportService';
 
-const ProjectSettings = ({ project }) => {
+const ProjectSettings = ({ project, onUpdate }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('general');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [selectedMember, setSelectedMember] = useState(null);
+  const [selectedRole, setSelectedRole] = useState('member');
 
-  const { items: tasks } = useSelector(state => state.tasks);
-  const { user } = useSelector(state => state.auth);
+  const { items: tasks = [] } = useSelector(state => state.tasks || { items: [] });
+  const { user } = useSelector(state => state.auth || {});
 
   const [generalSettings, setGeneralSettings] = useState({
-    name: project.name,
-    description: project.description,
-    tags: project.tags.join(', '),
-    isPublic: project.settings.isPublic
+    name: project.name || '',
+    description: project.description || '',
+    tags: project.tags ? project.tags.join(', ') : '',
+    isPublic: project.settings?.isPublic || false
   });
 
   const [templateSettings, setTemplateSettings] = useState({
-    template: project.settings.template,
-    columns: project.settings.columns.join('\n')
+    template: project.settings?.template || 'kanban',
+    columns: project.settings?.columns ? project.settings.columns.join('\n') : 'To Do\nIn Progress\nDone'
   });
 
   const [dangerSettings, setDangerSettings] = useState({
     confirmDelete: ''
   });
 
-  const isOwner = project.owner._id === user?._id;
-  const isAdmin = project.members.some(member => 
+  const isOwner = project.owner?._id === user?._id;
+  const isAdmin = project.members?.some(member => 
     member.user?._id === user?._id && 
     (member.role === 'owner' || member.role === 'admin')
   );
+
+  useEffect(() => {
+    if (project) {
+      setGeneralSettings({
+        name: project.name || '',
+        description: project.description || '',
+        tags: project.tags ? project.tags.join(', ') : '',
+        isPublic: project.settings?.isPublic || false
+      });
+      
+      setTemplateSettings({
+        template: project.settings?.template || 'kanban',
+        columns: project.settings?.columns ? project.settings.columns.join('\n') : 'To Do\nIn Progress\nDone'
+      });
+    }
+  }, [project]);
 
   const showMessage = (message, type = 'success') => {
     if (type === 'success') {
@@ -55,6 +75,8 @@ const ProjectSettings = ({ project }) => {
 
   const handleGeneralSave = async (e) => {
     e.preventDefault();
+    if (!project?._id) return;
+    
     setLoading(true);
 
     try {
@@ -74,6 +96,7 @@ const ProjectSettings = ({ project }) => {
       })).unwrap();
 
       showMessage('Настройки успешно сохранены');
+      if (onUpdate) onUpdate();
     } catch (error) {
       showMessage(error.message || 'Ошибка сохранения настроек', 'error');
     } finally {
@@ -83,6 +106,8 @@ const ProjectSettings = ({ project }) => {
 
   const handleTemplateSave = async (e) => {
     e.preventDefault();
+    if (!project?._id) return;
+    
     setLoading(true);
 
     try {
@@ -100,6 +125,7 @@ const ProjectSettings = ({ project }) => {
       })).unwrap();
 
       showMessage('Настройки шаблона сохранены');
+      if (onUpdate) onUpdate();
     } catch (error) {
       showMessage(error.message || 'Ошибка сохранения настроек шаблона', 'error');
     } finally {
@@ -108,14 +134,13 @@ const ProjectSettings = ({ project }) => {
   };
 
   const handleArchiveProject = async () => {
+    if (!project?._id) return;
+    
     if (window.confirm('Вы уверены, что хотите архивировать проект?')) {
       try {
-        await dispatch(updateProject({
-          projectId: project._id,
-          projectData: { status: 'archived' }
-        })).unwrap();
+        await dispatch(archiveProject(project._id)).unwrap();
         showMessage('Проект архивирован');
-        navigate('/projects');
+        if (onUpdate) onUpdate();
       } catch (error) {
         showMessage(error.message || 'Ошибка архивирования проекта', 'error');
       }
@@ -123,18 +148,20 @@ const ProjectSettings = ({ project }) => {
   };
 
   const handleActivateProject = async () => {
+    if (!project?._id) return;
+    
     try {
-      await dispatch(updateProject({
-        projectId: project._id,
-        projectData: { status: 'active' }
-      })).unwrap();
+      await dispatch(archiveProject(project._id)).unwrap();
       showMessage('Проект активирован');
+      if (onUpdate) onUpdate();
     } catch (error) {
       showMessage(error.message || 'Ошибка активации проекта', 'error');
     }
   };
 
   const handleDeleteProject = async () => {
+    if (!project?._id) return;
+    
     if (dangerSettings.confirmDelete !== project.name) {
       showMessage('Введите название проекта для подтверждения удаления', 'error');
       return;
@@ -153,6 +180,10 @@ const ProjectSettings = ({ project }) => {
 
   const handleExportCSV = () => {
     try {
+      if (!tasks.length) {
+        showMessage('Нет задач для экспорта', 'error');
+        return;
+      }
       exportService.exportTasksToCSV(tasks, project.name);
       showMessage('Задачи экспортированы в CSV');
     } catch (error) {
@@ -162,6 +193,10 @@ const ProjectSettings = ({ project }) => {
 
   const handleExportJSON = () => {
     try {
+      if (!tasks.length) {
+        showMessage('Нет задач для экспорта', 'error');
+        return;
+      }
       exportService.exportTasksToJSON(tasks, project.name);
       showMessage('Задачи экспортированы в JSON');
     } catch (error) {
@@ -178,10 +213,66 @@ const ProjectSettings = ({ project }) => {
     }
   };
 
+  const handleOpenRoleModal = (member) => {
+    setSelectedMember(member);
+    setSelectedRole(member.role);
+    setShowRoleModal(true);
+  };
+
+  const handleUpdateRole = async () => {
+    if (!selectedMember || !project?._id) return;
+    
+    try {
+      await dispatch(updateMemberRole({
+        projectId: project._id,
+        userId: selectedMember.user._id,
+        role: selectedRole
+      })).unwrap();
+      
+      showMessage('Роль участника обновлена');
+      setShowRoleModal(false);
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      showMessage(error.message || 'Ошибка обновления роли', 'error');
+    }
+  };
+
+  const getTemplateDescription = (template) => {
+    switch (template) {
+      case 'kanban': return 'Простая доска с колонками "To Do", "In Progress", "Done"';
+      case 'scrum': return 'Для agile-команд со спринтами и планированием';
+      case 'custom': return 'Произвольная структура колонок';
+      default: return '';
+    }
+  };
+
+  const getDefaultColumns = (template) => {
+    switch (template) {
+      case 'scrum': return 'Backlog\nSprint Planning\nIn Progress\nReview\nDone';
+      case 'kanban': return 'To Do\nIn Progress\nDone';
+      default: return 'To Do\nIn Progress\nDone';
+    }
+  };
+
+  const handleTemplateChange = (template) => {
+    setTemplateSettings({
+      template,
+      columns: getDefaultColumns(template)
+    });
+  };
+
+  if (!project || !project._id) {
+    return (
+      <Alert variant="warning">
+        Проект не загружен
+      </Alert>
+    );
+  }
+
   return (
     <div>
-      {error && <Alert variant="danger">{error}</Alert>}
-      {success && <Alert variant="success">{success}</Alert>}
+      {error && <Alert variant="danger" onClose={() => setError('')} dismissible>{error}</Alert>}
+      {success && <Alert variant="success" onClose={() => setSuccess('')} dismissible>{success}</Alert>}
 
       <Tabs activeKey={activeTab} onSelect={setActiveTab} className="mb-4">
         <Tab eventKey="general" title="Общие настройки">
@@ -238,7 +329,12 @@ const ProjectSettings = ({ project }) => {
                 </Row>
 
                 <Button variant="primary" type="submit" disabled={loading}>
-                  {loading ? 'Сохранение...' : 'Сохранить настройки'}
+                  {loading ? (
+                    <>
+                      <Spinner size="sm" className="me-2" />
+                      Сохранение...
+                    </>
+                  ) : 'Сохранить настройки'}
                 </Button>
               </Form>
             </Card.Body>
@@ -258,12 +354,15 @@ const ProjectSettings = ({ project }) => {
                       <Form.Label>Шаблон проекта</Form.Label>
                       <Form.Select
                         value={templateSettings.template}
-                        onChange={(e) => setTemplateSettings(prev => ({ ...prev, template: e.target.value }))}
+                        onChange={(e) => handleTemplateChange(e.target.value)}
                       >
                         <option value="kanban">Kanban доска</option>
                         <option value="scrum">Scrum</option>
                         <option value="custom">Произвольный</option>
                       </Form.Select>
+                      <Form.Text className="text-muted">
+                        {getTemplateDescription(templateSettings.template)}
+                      </Form.Text>
                     </Form.Group>
                   </Col>
                 </Row>
@@ -296,9 +395,104 @@ const ProjectSettings = ({ project }) => {
                 </div>
 
                 <Button variant="primary" type="submit" disabled={loading}>
-                  {loading ? 'Сохранение...' : 'Сохранить шаблон'}
+                  {loading ? (
+                    <>
+                      <Spinner size="sm" className="me-2" />
+                      Сохранение...
+                    </>
+                  ) : 'Сохранить шаблон'}
                 </Button>
               </Form>
+            </Card.Body>
+          </Card>
+        </Tab>
+
+        <Tab eventKey="members" title="Участники и роли">
+          <Card>
+            <Card.Header>
+              <h5 className="mb-0">Управление участниками проекта</h5>
+            </Card.Header>
+            <Card.Body>
+              {project.members && project.members.length > 0 ? (
+                <table className="table table-hover">
+                  <thead>
+                    <tr>
+                      <th>Участник</th>
+                      <th>Роль</th>
+                      <th>Дата присоединения</th>
+                      <th>Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {project.members.map((member, index) => (
+                      <tr key={index}>
+                        <td>
+                          <div className="d-flex align-items-center">
+                            {member.user?.avatar ? (
+                              <img 
+                                src={member.user.avatar} 
+                                alt={member.user.name}
+                                className="rounded-circle me-2"
+                                width="32"
+                                height="32"
+                              />
+                            ) : (
+                              <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2"
+                                style={{ width: '32px', height: '32px' }}>
+                                {member.user?.name?.charAt(0) || 'U'}
+                              </div>
+                            )}
+                            <div>
+                              <div className="fw-bold">{member.user?.name || 'Неизвестно'}</div>
+                              <small className="text-muted">{member.user?.email || ''}</small>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <Badge 
+                            bg={member.role === 'owner' ? 'primary' : 
+                                member.role === 'admin' ? 'warning' : 
+                                member.role === 'member' ? 'info' : 'secondary'}
+                            className="text-capitalize"
+                          >
+                            {member.role === 'owner' ? 'Владелец' :
+                             member.role === 'admin' ? 'Администратор' :
+                             member.role === 'member' ? 'Участник' : 'Наблюдатель'}
+                          </Badge>
+                        </td>
+                        <td>
+                          {member.joinedAt ? new Date(member.joinedAt).toLocaleDateString('ru-RU') : 'Неизвестно'}
+                        </td>
+                        <td>
+                          {isOwner && member.role !== 'owner' && (
+                            <Button
+                              variant="outline-primary"
+                              size="sm"
+                              onClick={() => handleOpenRoleModal(member)}
+                            >
+                              Изменить роль
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <Alert variant="info">
+                  В проекте нет участников
+                </Alert>
+              )}
+              
+              <div className="mt-3">
+                <h6>Описание ролей:</h6>
+                <ul className="text-muted">
+                  <li><strong>Владелец</strong> - полный доступ ко всем функциям, может удалять проект</li>
+                  <li><strong>Администратор</strong> - может управлять участниками и настройками</li>
+                  <li><strong>Участник</strong> - может создавать и редактировать задачи</li>
+                  <li><strong>Наблюдатель</strong> - только просмотр, без возможности редактирования</li>
+                </ul>
+              </div>
             </Card.Body>
           </Card>
         </Tab>
@@ -308,6 +502,7 @@ const ProjectSettings = ({ project }) => {
             project={project} 
             isOwner={isOwner} 
             isAdmin={isAdmin} 
+            onUpdate={onUpdate}
           />
         </Tab>
 
@@ -326,19 +521,19 @@ const ProjectSettings = ({ project }) => {
                   <Button 
                     variant="outline-success"
                     onClick={handleExportCSV}
-                    disabled={tasks.length === 0}
+                    disabled={!tasks.length}
                   >
                     📊 Экспорт задач (CSV)
                   </Button>
                   <Button 
                     variant="outline-primary"
                     onClick={handleExportJSON}
-                    disabled={tasks.length === 0}
+                    disabled={!tasks.length}
                   >
                     📋 Экспорт задач (JSON)
                   </Button>
                 </div>
-                {tasks.length === 0 && (
+                {!tasks.length && (
                   <Alert variant="info" className="mt-2">
                     Нет задач для экспорта
                   </Alert>
@@ -373,7 +568,7 @@ const ProjectSettings = ({ project }) => {
                     </tr>
                     <tr>
                       <td><strong>Участников:</strong></td>
-                      <td>{project.members.length}</td>
+                      <td>{project.members?.length || 0}</td>
                     </tr>
                     <tr>
                       <td><strong>Дата создания:</strong></td>
@@ -382,8 +577,20 @@ const ProjectSettings = ({ project }) => {
                     <tr>
                       <td><strong>Статус:</strong></td>
                       <td className="text-capitalize">
-                        {project.status === 'active' ? 'активный' : 
-                         project.status === 'archived' ? 'архивный' : 'завершенный'}
+                        <Badge bg={project.status === 'active' ? 'success' : 
+                                 project.status === 'archived' ? 'secondary' : 'info'}>
+                          {project.status === 'active' ? 'активный' : 
+                           project.status === 'archived' ? 'архивный' : 'завершенный'}
+                        </Badge>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><strong>Шаблон:</strong></td>
+                      <td>
+                        <Badge bg="info">
+                          {project.settings?.template === 'scrum' ? 'Скрам' : 
+                           project.settings?.template === 'custom' ? 'Кастомный' : 'Канбан'}
+                        </Badge>
                       </td>
                     </tr>
                   </tbody>
@@ -407,6 +614,7 @@ const ProjectSettings = ({ project }) => {
                 <Button 
                   variant="outline-warning"
                   onClick={project.status === 'archived' ? handleActivateProject : handleArchiveProject}
+                  disabled={loading}
                 >
                   {project.status === 'archived' ? 'Восстановить проект' : 'Архивировать проект'}
                 </Button>
@@ -432,8 +640,8 @@ const ProjectSettings = ({ project }) => {
 
                 <Button 
                   variant="danger" 
-                  disabled={dangerSettings.confirmDelete !== project.name}
-                  onClick={handleDeleteProject}
+                  disabled={dangerSettings.confirmDelete !== project.name || loading}
+                  onClick={() => setShowDeleteModal(true)}
                 >
                   Удалить проект навсегда
                 </Button>
@@ -442,6 +650,71 @@ const ProjectSettings = ({ project }) => {
           </Card>
         </Tab>
       </Tabs>
+
+      {/* Модальное окно удаления */}
+      <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Подтверждение удаления</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Alert variant="danger">
+            <strong>Внимание!</strong> Это действие нельзя отменить.
+          </Alert>
+          <p>Вы уверены, что хотите удалить проект <strong>"{project.name}"</strong>?</p>
+          <p className="text-muted">
+            Будут удалены все задачи, комментарии и данные проекта.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>
+            Отмена
+          </Button>
+          <Button variant="danger" onClick={handleDeleteProject} disabled={loading}>
+            {loading ? (
+              <>
+                <Spinner size="sm" className="me-2" />
+                Удаление...
+              </>
+            ) : 'Удалить проект'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Модальное окно изменения роли */}
+      <Modal show={showRoleModal} onHide={() => setShowRoleModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Изменение роли участника</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p>
+            Изменение роли для <strong>{selectedMember?.user?.name}</strong>
+          </p>
+          <Form.Group className="mb-3">
+            <Form.Label>Выберите роль</Form.Label>
+            <Form.Select 
+              value={selectedRole} 
+              onChange={(e) => setSelectedRole(e.target.value)}
+            >
+              <option value="admin">Администратор</option>
+              <option value="member">Участник</option>
+              <option value="viewer">Наблюдатель</option>
+            </Form.Select>
+          </Form.Group>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowRoleModal(false)}>
+            Отмена
+          </Button>
+          <Button variant="primary" onClick={handleUpdateRole} disabled={loading}>
+            {loading ? (
+              <>
+                <Spinner size="sm" className="me-2" />
+                Сохранение...
+              </>
+            ) : 'Сохранить'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 };

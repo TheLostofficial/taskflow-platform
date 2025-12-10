@@ -1,69 +1,131 @@
 import axios from 'axios';
-import { API_URL } from '../utils/constants';
+
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+console.log('🔧 projectService: API_URL =', API_URL);
 
 const api = axios.create({
-  baseURL: `${API_URL}/projects`,
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 10000, // 10 секунд таймаут
 });
 
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+    console.log('🔑 projectService: Token added to request');
+  } else {
+    console.warn('⚠️ projectService: No token found');
   }
-);
+  return config;
+});
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log('✅ projectService: Response received', response.status);
+    return response;
+  },
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+    console.error('❌ projectService: Request failed', {
+      message: error.message,
+      code: error.code,
+      response: error.response?.data,
+      status: error.response?.status,
+    });
+    
+    if (!error.response) {
+      console.error('❌ projectService: No response from server (Network error)');
+      console.error('💡 Tips:');
+      console.error('   1. Check if server is running on port 5000');
+      console.error('   2. Check if CORS is configured correctly');
+      console.error('   3. Check if API URL is correct:', API_URL);
     }
+    
     return Promise.reject(error);
   }
 );
 
 export const projectService = {
-  async getProjects() {
-    const response = await api.get('/');
-    return response;
+  // Получить все проекты пользователя
+  getProjects: () => {
+    console.log('📡 projectService: Fetching projects...');
+    return api.get('/projects');
   },
-
-  async getProjectById(projectId) {
-    const response = await api.get(`/${projectId}`);
-    return response;
+  
+  // Получить проект по ID
+  getProjectById: (projectId) => {
+    // Добавляем проверку ID
+    if (!projectId || projectId === 'undefined') {
+      console.error('❌ getProjectById: Invalid project ID');
+      return Promise.reject(new Error('Invalid project ID'));
+    }
+    
+    console.log(`📡 projectService: Fetching project ${projectId}...`);
+    return api.get(`/projects/${projectId}`);
   },
-
-  async createProject(projectData) {
-    const response = await api.post('/', projectData);
-    return response;
+  
+  // Создать новый проект
+  createProject: (projectData) => {
+    console.log('📡 projectService: Creating project...', projectData);
+    return api.post('/projects', projectData);
   },
-
-  async updateProject(projectId, projectData) {
-    const response = await api.put(`/${projectId}`, projectData);
-    return response;
+  
+  // Обновить проект
+  updateProject: (projectId, projectData) => {
+    console.log(`📡 projectService: Updating project ${projectId}...`);
+    return api.put(`/projects/${projectId}`, projectData);
   },
-
-  async deleteProject(projectId) {
-    const response = await api.delete(`/${projectId}`);
-    return response;
+  
+  // Удалить проект
+  deleteProject: (projectId) => {
+    console.log(`📡 projectService: Deleting project ${projectId}...`);
+    return api.delete(`/projects/${projectId}`);
   },
-
-  async getProjectTasks(projectId) {
-    const response = await api.get(`/${projectId}/tasks`);
-    return response;
+  
+  // Архивировать проект
+  archiveProject: (projectId) => {
+    console.log(`📡 projectService: Archiving project ${projectId}...`);
+    return api.patch(`/projects/${projectId}/archive`);
   },
-
-  async getProjectMembers(projectId) {
-    const response = await api.get(`/${projectId}/members`);
-    return response;
-  }
+  
+  // Выйти из проекта
+  leaveProject: (projectId) => {
+    console.log(`📡 projectService: Leaving project ${projectId}...`);
+    return api.post(`/projects/${projectId}/leave`);
+  },
+  
+  // Пригласить участника
+  inviteMember: (projectId, email) => {
+    console.log(`📡 projectService: Inviting ${email} to project ${projectId}...`);
+    return api.post(`/projects/${projectId}/invite`, { email });
+  },
+  
+  // Удалить участника
+  removeMember: (projectId, userId) => {
+    console.log(`📡 projectService: Removing member ${userId} from project ${projectId}...`);
+    return api.delete(`/projects/${projectId}/members/${userId}`);
+  },
+  
+  // Обновить роль участника
+  updateMemberRole: (projectId, userId, role) => {
+    console.log(`📡 projectService: Updating role of ${userId} to ${role}...`);
+    return api.patch(`/projects/${projectId}/members/${userId}`, { role });
+  },
+  
+  // Получить задачи проекта
+  getProjectTasks: (projectId, filters = {}) => {
+    console.log(`📡 projectService: Fetching tasks for project ${projectId}...`);
+    return api.get(`/projects/${projectId}/tasks`, { params: filters });
+  },
+  
+  // Создать задачу в проекте
+  createTask: (projectId, taskData) => {
+    console.log(`📡 projectService: Creating task in project ${projectId}...`);
+    return api.post(`/projects/${projectId}/tasks`, taskData);
+  },
 };
 
 export default projectService;

@@ -1,161 +1,262 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Container, Row, Col, Spinner, Alert, Button } from 'react-bootstrap';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { fetchProjectById, clearCurrentProject } from '../store/slices/projectsSlice';
-import { fetchProjectTasks, clearTasks } from '../store/slices/tasksSlice';
-import websocketService from '../services/websocket';
-
+import { clearTasks } from '../store/slices/tasksSlice';
 import ProjectHeader from '../components/projects/ProjectHeader';
 import ProjectTabs from '../components/projects/ProjectTabs';
+import ProjectOverview from '../components/projects/ProjectOverview';
+import TaskListWrapper from '../components/projects/TaskListWrapper';
+import ProjectMembers from '../components/projects/ProjectMembers';
+import ProjectSettings from '../components/projects/ProjectSettings';
 
 const ProjectDetailPage = () => {
-  const { projectId } = useParams();
+  const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
   
-  const { currentProject, operationLoading, operationError } = useSelector(state => state.projects);
-  const { items: tasks, loading: tasksLoading } = useSelector(state => state.tasks);
-  const { user } = useSelector(state => state.auth);
+  const { currentProject, loading, error, networkError } = useSelector((state) => state.projects);
+  const { user } = useSelector((state) => state.auth || {});
   
   const [activeTab, setActiveTab] = useState('overview');
-  const [socketConnected, setSocketConnected] = useState(false);
+  const [localError, setLocalError] = useState('');
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [idError, setIdError] = useState('');
+  const [shouldRender, setShouldRender] = useState(false);
 
-  // WebSocket management
+  // ПРОВЕРКА ID ПРОЕКТА - В ХУКЕ useEffect
   useEffect(() => {
-    if (projectId && websocketService.isConnected()) {
-      websocketService.joinProject(projectId);
-      setSocketConnected(true);
-      
-      return () => {
-        websocketService.leaveProject(projectId);
-        setSocketConnected(false);
-      };
+    if (!id || id === 'undefined') {
+      setIdError('ID проекта не указан или указан некорректно.');
+      setShouldRender(false);
+    } else {
+      setIdError('');
+      setShouldRender(true);
     }
-  }, [projectId]);
+  }, [id]);
 
-  // Fetch project data
+  // Загрузка проекта
   useEffect(() => {
-    if (projectId) {
-      dispatch(fetchProjectById(projectId));
-      dispatch(fetchProjectTasks(projectId));
-    }
+    if (!shouldRender) return;
+    
+    const loadProject = async () => {
+      try {
+        console.log(`🔍 ProjectDetailPage: Загрузка проекта с ID: ${id}`);
+        await dispatch(fetchProjectById(id)).unwrap();
+        setLocalError('');
+      } catch (error) {
+        console.error('Ошибка загрузки проекта:', error);
+        setLocalError(error.message || 'Проект не найден или у вас нет доступа к нему.');
+      }
+    };
 
+    // Очищаем все состояния перед загрузкой
+    dispatch(clearCurrentProject());
+    dispatch(clearTasks());
+    
+    loadProject();
+    
     return () => {
+      // Очистка при размонтировании компонента
       dispatch(clearCurrentProject());
       dispatch(clearTasks());
+      console.log('🧹 ProjectDetailPage: Очистка состояния при размонтировании');
     };
-  }, [dispatch, projectId]);
+  }, [id, dispatch, shouldRender]);
 
-  const hasAccess = currentProject && (
-    currentProject.owner._id === user?._id ||
-    currentProject.members.some(member => member.user._id === user?._id)
+  // Автоматический переход на вкладку overview при загрузке
+  useEffect(() => {
+    if (currentProject?._id && initialLoad) {
+      setActiveTab('overview');
+      setInitialLoad(false);
+    }
+  }, [currentProject, initialLoad]);
+
+  // Обработка изменения вкладки
+  useEffect(() => {
+    if (currentProject?._id) {
+      console.log(`📑 ProjectDetailPage: Активная вкладка "${activeTab}" для проекта ${currentProject._id}`);
+    }
+  }, [activeTab, currentProject]);
+
+  // Удалить все useCallback и создать функции внутри useEffect
+  useEffect(() => {
+    const handleProjectUpdate = () => {
+      console.log(`🔄 ProjectDetailPage: Обновление проекта ${currentProject?._id}`);
+      if (id && shouldRender) {
+        dispatch(fetchProjectById(id));
+      }
+      
+      if (activeTab === 'tasks') {
+        console.log('🔄 ProjectDetailPage: Обновление задач...');
+      }
+    };
+
+    // Сохраняем функцию для использования в компонентах
+    window.__handleProjectUpdate = handleProjectUpdate;
+
+    return () => {
+      delete window.__handleProjectUpdate;
+    };
+  }, [id, dispatch, currentProject?._id, activeTab, shouldRender]);
+
+  // УСЛОВНЫЕ РЕТУРНЫ ТОЛЬКО ПОСЛЕ ВСЕХ ХУКОВ
+  if (!shouldRender && idError) {
+    return (
+      <Container className="py-5">
+        <Row className="justify-content-center">
+          <Col md={8}>
+            <Alert variant="danger">
+              <Alert.Heading>Ошибка загрузки проекта</Alert.Heading>
+              <p>{idError}</p>
+              <hr />
+              <Button variant="primary" onClick={() => navigate('/projects')}>
+                Вернуться к списку проектов
+              </Button>
+            </Alert>
+          </Col>
+        </Row>
+      </Container>
+    );
+  }
+
+  const isLoading = loading || false;
+  const errorMessage = localError || error || null;
+  const project = currentProject || {};
+
+  // Отображение загрузки
+  if (isLoading && shouldRender) {
+    return (
+      <Container className="py-5">
+        <Row className="justify-content-center">
+          <Col md={6} className="text-center">
+            <Spinner animation="border" variant="primary" />
+            <p className="mt-3">Загрузка проекта...</p>
+          </Col>
+        </Row>
+      </Container>
+    );
+  }
+
+  // Отображение ошибки загрузки
+  if ((errorMessage || !project._id) && shouldRender) {
+    return (
+      <Container className="py-5">
+        <Row className="justify-content-center">
+          <Col md={8}>
+            <Alert variant="danger">
+              <Alert.Heading>Ошибка загрузки проекта</Alert.Heading>
+              <p>
+                {errorMessage || 'Проект не найден или у вас нет доступа к нему.'}
+                {networkError && ' Проверьте подключение к серверу.'}
+              </p>
+              <hr />
+              <div className="d-flex gap-2">
+                <Button variant="primary" onClick={() => navigate('/projects')}>
+                  Вернуться к списку проектов
+                </Button>
+                <Button variant="outline-secondary" onClick={() => {
+                  if (id) {
+                    dispatch(fetchProjectById(id));
+                  }
+                }}>
+                  Повторить попытку
+                </Button>
+              </div>
+            </Alert>
+          </Col>
+        </Row>
+      </Container>
+    );
+  }
+
+  // Проверка доступа пользователя к проекту
+  const isMember = project.members?.some(
+    (member) => member.user?._id === user?._id
+  );
+  const isOwner = project.owner?._id === user?._id;
+
+  if (!isMember && !isOwner && !project.settings?.isPublic && shouldRender) {
+    return (
+      <Container className="py-5">
+        <Row className="justify-content-center">
+          <Col md={8}>
+            <Alert variant="warning">
+              <Alert.Heading>Доступ запрещен</Alert.Heading>
+              <p>У вас нет доступа к этому проекту.</p>
+              <hr />
+              <Button variant="primary" onClick={() => navigate('/projects')}>
+                Вернуться к списку проектов
+              </Button>
+            </Alert>
+          </Col>
+        </Row>
+      </Container>
+    );
+  }
+
+  // Определение прав пользователя
+  const canEdit = project.members?.some(member => 
+    member.user?._id === user?._id && 
+    (member.role === 'owner' || member.role === 'admin' || member.role === 'member')
   );
 
-  if (operationLoading) {
-    return (
-      <Container className="text-center py-5">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">Загрузка проекта...</span>
-        </Spinner>
-        <p className="mt-2">Загрузка проекта...</p>
-        {!socketConnected && (
-          <Alert variant="warning" className="mt-3">
-            <small>Real-time обновления не активны</small>
-          </Alert>
-        )}
-      </Container>
-    );
-  }
+  const canViewSettings = isOwner || project.members?.some(m => 
+    m.user?._id === user?._id && m.role === 'admin'
+  );
 
-  if (operationError) {
-    return (
-      <Container>
-        <Alert variant="danger" className="mt-4">
-          <Alert.Heading>Ошибка загрузки проекта</Alert.Heading>
-          <p>{operationError}</p>
-          <div className="d-flex gap-2">
-            <Button variant="outline-danger" onClick={() => dispatch(fetchProjectById(projectId))}>
-              Попробовать снова
-            </Button>
-            <Button variant="primary" onClick={() => navigate('/projects')}>
-              К списку проектов
-            </Button>
-          </div>
-        </Alert>
-      </Container>
-    );
-  }
+  const handleTabSelect = (tab) => {
+    setActiveTab(tab);
+    console.log(`🔄 ProjectDetailPage: Переключение на вкладку "${tab}"`);
+  };
 
-  if (!currentProject) {
-    return (
-      <Container>
-        <Alert variant="warning" className="mt-4">
-          <Alert.Heading>Проект не найден</Alert.Heading>
-          <p>Запрошенный проект не существует или у вас нет к нему доступа.</p>
-          <Button variant="primary" onClick={() => navigate('/projects')}>
-            К списку проектов
-          </Button>
-        </Alert>
-      </Container>
-    );
-  }
-
-  if (!hasAccess) {
-    return (
-      <Container>
-        <Alert variant="warning" className="mt-4">
-          <Alert.Heading>Доступ запрещен</Alert.Heading>
-          <p>У вас нет прав для просмотра этого проекта.</p>
-          <Button variant="primary" onClick={() => navigate('/projects')}>
-            К списку проектов
-          </Button>
-        </Alert>
-      </Container>
-    );
+  // Основной рендер
+  if (!shouldRender || !project._id) {
+    return null;
   }
 
   return (
-    <Container fluid className="py-4">
-      {/* WebSocket Status Indicator */}
-      {websocketService.isConnected() ? (
-        <Alert variant="success" className="mb-3 py-2">
-          <div className="d-flex align-items-center">
-            <span className="badge bg-success me-2">●</span>
-            <small>Real-time обновления активны</small>
-          </div>
-        </Alert>
-      ) : (
-        <Alert variant="warning" className="mb-3 py-2">
-          <div className="d-flex align-items-center">
-            <span className="badge bg-warning me-2">●</span>
-            <small>Real-time обновления не активны. Обновления будут через перезагрузку.</small>
-          </div>
-        </Alert>
-      )}
-
-      <Row>
-        <Col>
-          <ProjectHeader 
-            project={currentProject} 
-            user={user}
-            onProjectUpdate={() => {
-              dispatch(fetchProjectById(projectId));
-              dispatch(fetchProjectTasks(projectId));
-            }}
+    <Container className="py-4">
+      <ProjectHeader 
+        project={project} 
+        isOwner={isOwner}
+        onUpdate={() => window.__handleProjectUpdate && window.__handleProjectUpdate()}
+      />
+      
+      <ProjectTabs 
+        activeTab={activeTab} 
+        onSelect={handleTabSelect}
+        project={project}
+        user={user}
+      />
+      
+      <div className="mt-4">
+        {activeTab === 'overview' && (
+          <ProjectOverview project={project} />
+        )}
+        
+        {activeTab === 'tasks' && (
+          <TaskListWrapper 
+            project={project} 
+            canEdit={canEdit}
           />
-          
-          <ProjectTabs
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            project={currentProject}
-            projectId={projectId}
-            user={user}
-            tasks={tasks}
-            tasksLoading={tasksLoading}
+        )}
+        
+        {activeTab === 'members' && (
+          <ProjectMembers 
+            project={project}
+            isOwner={isOwner}
           />
-        </Col>
-      </Row>
+        )}
+        
+        {canViewSettings && activeTab === 'settings' && (
+          <ProjectSettings 
+            project={project}
+            onUpdate={() => window.__handleProjectUpdate && window.__handleProjectUpdate()}
+          />
+        )}
+      </div>
     </Container>
   );
 };

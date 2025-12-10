@@ -253,4 +253,18 @@ projectSchema.methods.deactivateInvite = async function(code) {
   return false;
 };
 
+// Метод для проверки прав пользователя
+projectSchema.methods.checkUserPermission = function(userId, permission) {
+  if (this.owner.toString() === userId.toString()) {
+    return true;
+  }
+  
+  const member = this.members.find(m => m.user.toString() === userId.toString());
+  if (!member) {
+    return false;
+  }
+  
+  return member.permissions[permission] || false;
+};
+
 export default mongoose.model('Project', projectSchema);

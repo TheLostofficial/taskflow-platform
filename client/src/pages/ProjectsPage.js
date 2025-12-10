@@ -1,157 +1,138 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Row, Col, Card, Button, Spinner, Alert } from 'react-bootstrap';
-import { Link } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { Container, Row, Col, Card, Button, Spinner, Alert, Badge } from 'react-bootstrap';
+import { LinkContainer } from 'react-router-bootstrap';
+import { useSelector, useDispatch } from 'react-redux';
+import { fetchProjects } from '../store/slices/projectsSlice';
 import CreateProjectModal from '../components/projects/CreateProjectModal';
 
 const ProjectsPage = () => {
-  const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const dispatch = useDispatch();
+  const { projects = [], loading = false, error = null } = useSelector((state) => state.projects || {});
+  const { user } = useSelector((state) => state.auth || {});
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const { isAuthenticated } = useSelector(state => state.auth);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchProjects();
-    }
-  }, [isAuthenticated]);
+    dispatch(fetchProjects());
+  }, [dispatch]);
 
-  const fetchProjects = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/projects', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setProjects(data.projects || []);
-      } else {
-        setError('Failed to load projects');
-      }
-    } catch (error) {
-      setError('Network error');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Защита от undefined
+  const projectsArray = Array.isArray(projects) ? projects : [];
+  const isLoading = loading || false;
+  const errorMessage = error || null;
 
-  const handleProjectCreated = (newProject) => {
-    setProjects(prev => [newProject, ...prev]);
-  };
-
-  if (!isAuthenticated) {
+  if (isLoading) {
     return (
-      <Container>
+      <Container className="py-5">
         <Row className="justify-content-center">
-          <Col md={6}>
-            <Card className="text-center">
-              <Card.Body>
-                <h3>Доступ запрещен</h3>
-                <p>Пожалуйста, войдите в систему чтобы просматривать проекты</p>
-                <Link to="/login">
-                  <Button variant="primary">Войти</Button>
-                </Link>
-              </Card.Body>
-            </Card>
+          <Col md={6} className="text-center">
+            <Spinner animation="border" variant="primary" />
+            <p className="mt-3">Загрузка проектов...</p>
           </Col>
         </Row>
-      </Container>
-    );
-  }
-
-  if (loading) {
-    return (
-      <Container className="text-center py-5">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">Загрузка...</span>
-        </Spinner>
-        <p className="mt-2">Загрузка проектов...</p>
       </Container>
     );
   }
 
   return (
-    <>
-      <Container>
-        <Row className="mb-4">
-          <Col>
-            <div className="d-flex justify-content-between align-items-center">
-              <h1>Мои проекты</h1>
-              <Button 
-                variant="success" 
-                size="lg"
-                onClick={() => setShowCreateModal(true)}
-              >
-                + Создать проект
-              </Button>
-            </div>
+    <Container className="py-5">
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h1>Мои проекты</h1>
+          <p className="text-muted mb-0">
+            Всего проектов: {projectsArray.length}
+          </p>
+        </div>
+        <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+          + Новый проект
+        </Button>
+      </div>
+
+      {errorMessage && (
+        <Alert variant="danger" className="mb-4">
+          {errorMessage}
+        </Alert>
+      )}
+
+      {projectsArray.length === 0 ? (
+        <Row className="justify-content-center">
+          <Col md={8} className="text-center">
+            <Card className="border-dashed">
+              <Card.Body className="py-5">
+                <h4 className="text-muted mb-3">Проектов пока нет</h4>
+                <p className="text-muted mb-4">Создайте свой первый проект для управления задачами</p>
+                <Button variant="primary" size="lg" onClick={() => setShowCreateModal(true)}>
+                  Создать проект
+                </Button>
+              </Card.Body>
+            </Card>
           </Col>
         </Row>
-
-        {error && <Alert variant="danger">{error}</Alert>}
-
-        <Row className="g-4">
-          {projects.length === 0 ? (
-            <Col>
-              <Card className="text-center py-5">
+      ) : (
+        <Row>
+          {projectsArray.map((project) => (
+            <Col key={project._id || Math.random()} md={6} lg={4} className="mb-4">
+              <Card className="h-100 shadow-sm hover-shadow">
                 <Card.Body>
-                  <h3>Проектов пока нет</h3>
-                  <p className="text-muted">Создайте ваш первый проект чтобы начать работу</p>
-                  <Button 
-                    variant="primary" 
-                    size="lg"
-                    onClick={() => setShowCreateModal(true)}
-                  >
-                    Создать первый проект
-                  </Button>
+                  <div className="d-flex justify-content-between align-items-start mb-2">
+                    <Card.Title className="mb-0">{project.name || 'Без названия'}</Card.Title>
+                    <Badge 
+                      bg={project.status === 'archived' ? 'secondary' : 'success'}
+                      className="text-capitalize"
+                    >
+                      {project.status === 'archived' ? 'Архив' : 'Активен'}
+                    </Badge>
+                  </div>
+                  
+                  <Card.Text className="text-muted small mb-3">
+                    {project.description || 'Нет описания'}
+                  </Card.Text>
+                  
+                  <div className="mt-auto">
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <span className="badge bg-light text-dark">
+                        <i className="bi bi-people me-1"></i>
+                        {project.members?.length || 0} участников
+                      </span>
+                      <span className="badge bg-primary">
+                        <i className="bi bi-check-circle me-1"></i>
+                        {project.taskCount || 0} задач
+                      </span>
+                    </div>
+                    
+                    <div className="small text-muted">
+                      <div>Владелец: {project.owner?.name || 'Неизвестно'}</div>
+                      <div>Шаблон: 
+                        <Badge bg="info" className="ms-2">
+                          {project.settings?.template === 'scrum' ? 'Скрам' : 
+                           project.settings?.template === 'custom' ? 'Кастомный' : 'Канбан'}
+                        </Badge>
+                      </div>
+                      <div className="mt-1">
+                        <small>
+                          Обновлен: {new Date(project.updatedAt).toLocaleDateString('ru-RU')}
+                        </small>
+                      </div>
+                    </div>
+                  </div>
                 </Card.Body>
+                <Card.Footer className="bg-transparent">
+                  <LinkContainer to={`/projects/${project._id}`}>
+                    <Button variant="outline-primary" className="w-100">
+                      Открыть проект
+                    </Button>
+                  </LinkContainer>
+                </Card.Footer>
               </Card>
             </Col>
-          ) : (
-            projects.map(project => (
-              <Col key={project._id} md={6} lg={4}>
-                <Card className="h-100 shadow-sm">
-                  <Card.Body className="d-flex flex-column">
-                    <Card.Title>{project.name}</Card.Title>
-                    <Card.Text className="text-muted flex-grow-1">
-                      {project.description || 'Описание отсутствует'}
-                    </Card.Text>
-                    <div className="mt-auto">
-                      <small className="text-muted d-block">
-                        Статус: <span className="text-capitalize">{project.status}</span>
-                      </small>
-                      <small className="text-muted">
-                        Участников: {project.members?.length || 1}
-                      </small>
-                    </div>
-                  </Card.Body>
-                  <Card.Footer>
-                    <Button 
-                      variant="outline-primary" 
-                      size="sm"
-                      as={Link}
-                      to={`/projects/${project._id}`}
-                    >
-                      Открыть
-                    </Button>
-                  </Card.Footer>
-                </Card>
-              </Col>
-            ))
-          )}
+          ))}
         </Row>
-      </Container>
+      )}
 
       <CreateProjectModal
         show={showCreateModal}
         onHide={() => setShowCreateModal(false)}
-        onProjectCreated={handleProjectCreated}
       />
-    </>
+    </Container>
   );
 };
 

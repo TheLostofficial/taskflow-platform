@@ -62,6 +62,10 @@ export const getCurrentUser = createAsyncThunk(
       const response = await userService.getProfile();
       return response.data;
     } catch (error) {
+      // Если ошибка 401, очищаем токен
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+      }
       return rejectWithValue(error.response?.data || { message: 'Failed to fetch user profile' });
     }
   }
@@ -101,6 +105,11 @@ const authSlice = createSlice({
     },
     setUser: (state, action) => {
       state.user = action.payload;
+    },
+    setToken: (state, action) => {
+      state.token = action.payload;
+      state.isAuthenticated = !!action.payload;
+      localStorage.setItem('token', action.payload);
     }
   },
   extraReducers: (builder) => {
@@ -142,6 +151,7 @@ const authSlice = createSlice({
       })
       .addCase(getCurrentUser.rejected, (state) => {
         state.profileLoading = false;
+        // Не очищаем isAuthenticated, так как токен может быть валидным, но данные профиля не загрузились
       })
       .addCase(updateUserProfile.pending, (state) => {
         state.profileLoading = true;
@@ -158,5 +168,5 @@ const authSlice = createSlice({
   }
 });
 
-export const { logout, clearError, setUser } = authSlice.actions;
+export const { logout, clearError, setUser, setToken } = authSlice.actions;
 export default authSlice.reducer;

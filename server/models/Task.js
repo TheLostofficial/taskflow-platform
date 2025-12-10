@@ -149,7 +149,7 @@ const taskSchema = new mongoose.Schema({
   activityLog: [{
     type: {
       type: String,
-      enum: ['created', 'updated', 'status_changed', 'assigned', 'commented', 'attachment_added'],
+      enum: ['created', 'updated', 'status_changed', 'assigned', 'commented', 'attachment_added', 'time_logged'],
       required: true
     },
     user: {
@@ -178,35 +178,38 @@ taskSchema.index({ labels: 1 });
 taskSchema.index({ 'comments.author': 1 });
 
 taskSchema.pre('save', function(next) {
+  // Сохраняем оригинальные значения для сравнения
   if (this.isNew) {
     this.activityLog.push({
       type: 'created',
       user: this.creator,
       details: { title: this.title }
     });
-  }
-  
-  if (this.isModified('status')) {
-    const oldStatus = this._originalStatus || 'To Do';
-    this.activityLog.push({
-      type: 'status_changed',
-      user: this.creator,
-      details: {
-        oldValue: oldStatus,
-        newValue: this.status
-      }
-    });
-  }
-  
-  if (this.isModified('assignee')) {
-    this.activityLog.push({
-      type: 'assigned',
-      user: this.creator,
-      details: {
-        oldValue: this._originalAssignee,
-        newValue: this.assignee
-      }
-    });
+  } else {
+    // Проверяем изменения статуса
+    if (this.isModified('status')) {
+      const oldStatus = this._originalStatus || 'To Do';
+      this.activityLog.push({
+        type: 'status_changed',
+        user: this.creator,
+        details: {
+          oldValue: oldStatus,
+          newValue: this.status
+        }
+      });
+    }
+    
+    // Проверяем изменения ответственного
+    if (this.isModified('assignee')) {
+      this.activityLog.push({
+        type: 'assigned',
+        user: this.creator,
+        details: {
+          oldValue: this._originalAssignee,
+          newValue: this.assignee
+        }
+      });
+    }
   }
   
   next();
@@ -214,6 +217,10 @@ taskSchema.pre('save', function(next) {
 
 taskSchema.methods.addComment = async function(commentData) {
   const { author, content, mentions = [], attachments = [] } = commentData;
+  
+  if (!this._id) {
+    throw new Error('Task not found');
+  }
   
   const comment = {
     author,
@@ -326,6 +333,33 @@ taskSchema.methods.addCommentAttachment = async function(commentId, attachmentDa
   
   await this.save();
   return comment.attachments[comment.attachments.length - 1];
+};
+
+// Метод для добавления записи времени
+taskSchema.methods.addTimeLog = async function(timeLogData, userId) {
+  const { hours, description, date } = timeLogData;
+  
+  if (!hours || hours <= 0) {
+    throw new Error('Hours must be greater than 0');
+  }
+  
+  // Обновляем actualHours
+  this.actualHours = (this.actualHours || 0) + hours;
+  
+  // Добавляем запись в activityLog
+  this.activityLog.push({
+    type: 'time_logged',
+    user: userId,
+    details: {
+      hours,
+      description: description || '',
+      date: date || new Date()
+    },
+    timestamp: new Date()
+  });
+  
+  await this.save();
+  return this.activityLog[this.activityLog.length - 1];
 };
 
 export default mongoose.model('Task', taskSchema);

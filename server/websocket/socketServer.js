@@ -25,6 +25,7 @@ class SocketServer {
     console.log('✅ WebSocket сервер инициализирован');
     console.log('📡 WebSocket путь: /socket.io/');
     console.log('🌐 CORS origin:', process.env.CLIENT_URL || 'http://localhost:3000');
+    console.log('⚙️  Transports:', ['websocket', 'polling']);
   }
 
   setupMiddleware() {
@@ -85,6 +86,7 @@ class SocketServer {
   setupConnection() {
     this.io.on('connection', (socket) => {
       console.log(`⚡ Новое подключение: ${socket.userId} (socket: ${socket.id})`);
+      console.log(`🔌 Transport: ${socket.conn.transport.name}`);
 
       // Сохраняем связь userId -> socket.id
       this.users.set(socket.userId, socket.id);
@@ -98,7 +100,8 @@ class SocketServer {
         userId: socket.userId,
         socketId: socket.id,
         timestamp: new Date().toISOString(),
-        serverTime: new Date().toISOString()
+        serverTime: new Date().toISOString(),
+        totalConnections: this.io.engine.clientsCount
       });
 
       console.log(`📊 Активных подключений: ${this.io.engine.clientsCount}`);

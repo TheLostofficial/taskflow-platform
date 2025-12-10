@@ -39,6 +39,12 @@ class WebSocketService {
     this.isConnecting = true;
     this.reconnectAttempts = 0;
     
+    console.log('🔧 WebSocket Debug:');
+    console.log('- REACT_APP_WS_URL:', process.env.REACT_APP_WS_URL);
+    console.log('- Token exists:', !!token);
+    console.log('- Token length:', token?.length);
+    console.log('- Connection timeout:', this.connectionTimeout);
+    
     console.log(`🔗 WebSocket: Начинаем подключение...`);
 
     try {
@@ -84,6 +90,7 @@ class WebSocketService {
     this.socket.on('connect', () => {
       console.log('✅ WebSocket: Подключено, socket ID:', this.socket.id);
       console.log('🔌 WebSocket URL:', this.socket.io.uri);
+      console.log('🔌 WebSocket transport:', this.socket.io.engine?.transport?.name || 'unknown');
       this.isConnecting = false;
       this._connectionStatus = true;
       this.reconnectAttempts = 0;
@@ -125,8 +132,12 @@ class WebSocketService {
 
     // Ошибка подключения
     this.socket.on('connect_error', (error) => {
-      console.error('❌ WebSocket: Ошибка подключения:', error.message);
-      console.error('❌ WebSocket error details:', error);
+      console.error('❌ WebSocket connect_error:', {
+        message: error.message,
+        code: error.code,
+        context: error.context,
+        type: error.type
+      });
       this.isConnecting = false;
       this._connectionStatus = false;
       this.reconnectAttempts++;

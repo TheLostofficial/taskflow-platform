@@ -1,49 +1,33 @@
 {
   "name": "taskflow-client",
   "version": "1.0.0",
-  "description": "Frontend for TaskFlow project management system",
-  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.2.3",
+    "axios": "^1.6.7",
+    "bootstrap": "^5.3.2",
+    "date-fns": "^4.1.0",
+    "file-saver": "^2.0.5",
+    "react": "^18.2.0",
+    "react-bootstrap": "^2.10.0",
+    "react-dom": "^18.2.0",
+    "react-redux": "^9.1.0",
+    "react-router-bootstrap": "^0.26.2",
+    "react-router-dom": "^6.22.0",
+    "react-scripts": "5.0.1",
+    "socket.io-client": "^4.7.4",
+    "web-vitals": "^3.5.0"
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "lint": "eslint src/",
-    "format": "prettier --write src/"
+    "eject": "react-scripts eject"
   },
-  "keywords": [
-    "react",
-    "taskflow",
-    "project-management",
-    "redux",
-    "websocket",
-    "real-time"
-  ],
-  "author": "ИмяЗаказчика",
-  "license": "MIT",
-  "dependencies": {
-    "@dnd-kit/core": "^6.0.8",
-    "@dnd-kit/sortable": "^7.0.2",
-    "@dnd-kit/utilities": "^3.2.1",
-    "@reduxjs/toolkit": "^1.9.5",
-    "axios": "^1.5.0",
-    "bootstrap": "^5.3.1",
-    "chart.js": "^4.4.0",
-    "file-saver": "^2.0.5",
-    "react": "^18.2.0",
-    "react-bootstrap": "^2.8.0",
-    "react-chartjs-2": "^5.2.0",
-    "react-datepicker": "^4.16.0",
-    "react-dom": "^18.2.0",
-    "react-redux": "^8.1.2",
-    "react-router-bootstrap": "^0.26.3",
-    "react-router-dom": "^6.15.0",
-    "react-scripts": "5.0.1",
-    "socket.io-client": "^4.7.2"
-  },
-  "devDependencies": {
-    "eslint": "^8.47.0",
-    "prettier": "^3.0.2"
+  "eslintConfig": {
+    "extends": [
+      "react-app"
+    ]
   },
   "browserslist": {
     "production": [
@@ -57,5 +41,7 @@
       "last 1 safari version"
     ]
   },
-  "proxy": "http://localhost:5000"
+  "devDependencies": {
+    "@babel/plugin-proposal-private-property-in-object": "^7.21.11"
+  }
 }

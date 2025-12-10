@@ -1,14 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Row, Col, Card, Button, Badge, Form, Spinner, Alert, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { useDispatch, useSelector } from 'react-redux';
-import { fetchProjectTasks, createTask, updateTask, deleteTask } from '../../store/slices/tasksSlice';
+import { createTask, updateTask, deleteTask } from '../../store/slices/tasksSlice';
 import TaskDetailModal from './TaskDetailModal';
 import TaskFilters from './TaskFilters';
 import exportService from '../../services/exportService';
 
 const TaskList = ({ project, canEdit }) => {
   const dispatch = useDispatch();
-  const { items: tasks, loading, error, operationLoading } = useSelector(state => state.tasks);
+  const { 
+    items: tasks = [], 
+    loading, 
+    error, 
+    operationLoading, 
+    currentProjectId 
+  } = useSelector(state => state.tasks || { items: [] });
+  
+  const { user } = useSelector(state => state.auth || {});
   
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -18,34 +26,60 @@ const TaskList = ({ project, canEdit }) => {
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
-    status: project.settings.columns[0] || 'To Do',
+    status: project.settings?.columns?.[0] || 'To Do',
     priority: 'medium'
   });
 
-  useEffect(() => {
-    if (project._id) {
-      dispatch(fetchProjectTasks(project._id));
-    }
-  }, [dispatch, project._id]);
+  // Если проект не загружен
+  if (!project?._id) {
+    return (
+      <Alert variant="warning">
+        Проект не загружен. Невозможно отобразить задачи.
+      </Alert>
+    );
+  }
 
+  // Фильтрация задач текущего проекта
   useEffect(() => {
-    setFilteredTasks(tasks);
-  }, [tasks]);
+    if (!tasks || !Array.isArray(tasks)) {
+      setFilteredTasks([]);
+      return;
+    }
+    
+    // Фильтруем задачи текущего проекта и удаляем дубликаты
+    const tasksMap = new Map();
+    
+    tasks.forEach(task => {
+      if (task && task._id) {
+        const taskProjectId = task.project?._id || task.project;
+        if (taskProjectId === project._id) {
+          tasksMap.set(task._id, task);
+        }
+      }
+    });
+    
+    const uniqueTasks = Array.from(tasksMap.values());
+    console.log(`📊 TaskList: Уникальных задач проекта ${project._id}: ${uniqueTasks.length} из ${tasks.length}`);
+    
+    setFilteredTasks(uniqueTasks);
+  }, [tasks, project._id]);
 
   const handleCreateTask = async (e) => {
     e.preventDefault();
-    if (!newTask.title.trim()) return;
+    if (!newTask.title.trim() || !user?._id) return;
 
     try {
+      console.log(`📝 TaskList: Создание задачи для проекта ${project._id}`);
       await dispatch(createTask({
         ...newTask,
-        project: project._id
+        project: project._id,
+        creator: user._id
       })).unwrap();
 
       setNewTask({
         title: '',
         description: '',
-        status: project.settings.columns[0] || 'To Do',
+        status: project.settings?.columns?.[0] || 'To Do',
         priority: 'medium'
       });
       setShowCreateForm(false);
@@ -55,8 +89,14 @@ const TaskList = ({ project, canEdit }) => {
   };
 
   const handleDeleteTask = async (taskId) => {
+    if (!taskId) {
+      console.error('Task ID is null or undefined');
+      return;
+    }
+    
     if (window.confirm('Вы уверены, что хотите удалить эту задачу?')) {
       try {
+        console.log(`🗑️ TaskList: Удаление задачи ${taskId}`);
         await dispatch(deleteTask(taskId)).unwrap();
       } catch (error) {
         console.error('Failed to delete task:', error);
@@ -65,7 +105,13 @@ const TaskList = ({ project, canEdit }) => {
   };
 
   const handleStatusChange = async (taskId, newStatus) => {
+    if (!taskId) {
+      console.error('Task ID is null or undefined');
+      return;
+    }
+    
     try {
+      console.log(`🔄 TaskList: Изменение статуса задачи ${taskId} на ${newStatus}`);
       await dispatch(updateTask({
         taskId,
         taskData: { status: newStatus }
@@ -73,10 +119,6 @@ const TaskList = ({ project, canEdit }) => {
     } catch (error) {
       console.error('Failed to update task:', error);
     }
-  };
-
-  const handleFilterChange = (filtered, filters) => {
-    setFilteredTasks(filtered);
   };
 
   const getPriorityVariant = (priority) => {
@@ -101,24 +143,45 @@ const TaskList = ({ project, canEdit }) => {
 
   const handleExportCSV = () => {
     try {
-      exportService.exportTasksToCSV(tasks, project.name);
+      if (!filteredTasks.length) {
+        alert('Нет задач для экспорта');
+        return;
+      }
+      console.log(`📤 TaskList: Экспорт ${filteredTasks.length} задач в CSV`);
+      exportService.exportTasksToCSV(filteredTasks, project.name);
     } catch (error) {
       console.error('Export error:', error);
+      alert('Ошибка при экспорте в CSV');
     }
   };
 
   const handleExportJSON = () => {
     try {
-      exportService.exportTasksToJSON(tasks, project.name);
+      if (!filteredTasks.length) {
+        alert('Нет задач для экспорта');
+        return;
+      }
+      console.log(`📤 TaskList: Экспорт ${filteredTasks.length} задач в JSON`);
+      exportService.exportTasksToJSON(filteredTasks, project.name);
     } catch (error) {
       console.error('Export error:', error);
+      alert('Ошибка при экспорте в JSON');
     }
   };
 
-  const tasksByStatus = {};
-  project.settings.columns.forEach(column => {
-    tasksByStatus[column] = filteredTasks.filter(task => task.status === column);
-  });
+  // Группировка задач по статусу
+  const tasksByStatus = useMemo(() => {
+    const groups = {};
+    const columns = project.settings?.columns || ['To Do', 'In Progress', 'Done'];
+    
+    columns.forEach(column => {
+      groups[column] = filteredTasks.filter(task => task.status === column);
+    });
+    
+    return groups;
+  }, [filteredTasks, project.settings?.columns]);
+
+  const columns = project.settings?.columns || ['To Do', 'In Progress', 'Done'];
 
   if (loading) {
     return (
@@ -133,10 +196,12 @@ const TaskList = ({ project, canEdit }) => {
 
   return (
     <div>
-      {error && <Alert variant="danger">{error}</Alert>}
+      {error && <Alert variant="danger" onClose={() => {}} dismissible>{error}</Alert>}
 
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h5>Задачи проекта ({filteredTasks.length} из {tasks.length})</h5>
+        <h5>
+          Задачи проекта ({filteredTasks.length})
+        </h5>
         <div className="d-flex gap-2">
           <ButtonGroup>
             <Button 
@@ -152,10 +217,10 @@ const TaskList = ({ project, canEdit }) => {
                 📤 Экспорт
               </Dropdown.Toggle>
               <Dropdown.Menu>
-                <Dropdown.Item onClick={handleExportCSV} disabled={tasks.length === 0}>
+                <Dropdown.Item onClick={handleExportCSV} disabled={!filteredTasks.length}>
                   Экспорт в CSV
                 </Dropdown.Item>
-                <Dropdown.Item onClick={handleExportJSON} disabled={tasks.length === 0}>
+                <Dropdown.Item onClick={handleExportJSON} disabled={!filteredTasks.length}>
                   Экспорт в JSON
                 </Dropdown.Item>
               </Dropdown.Menu>
@@ -177,8 +242,8 @@ const TaskList = ({ project, canEdit }) => {
       {/* Компонент фильтров */}
       {showFilters && (
         <TaskFilters 
-          tasks={tasks}
-          onFilterChange={handleFilterChange}
+          tasks={filteredTasks}
+          onFilterChange={(filtered) => setFilteredTasks(filtered)}
           projectMembers={project.members}
         />
       )}
@@ -211,7 +276,7 @@ const TaskList = ({ project, canEdit }) => {
                       value={newTask.status}
                       onChange={(e) => setNewTask(prev => ({ ...prev, status: e.target.value }))}
                     >
-                      {project.settings.columns.map(column => (
+                      {columns.map(column => (
                         <option key={column} value={column}>{column}</option>
                       ))}
                     </Form.Select>
@@ -246,7 +311,12 @@ const TaskList = ({ project, canEdit }) => {
 
               <div className="d-flex gap-2">
                 <Button variant="primary" type="submit" disabled={operationLoading}>
-                  {operationLoading ? 'Создание...' : 'Создать задачу'}
+                  {operationLoading ? (
+                    <>
+                      <Spinner size="sm" className="me-2" />
+                      Создание...
+                    </>
+                  ) : 'Создать задачу'}
                 </Button>
                 <Button 
                   variant="outline-secondary" 
@@ -262,7 +332,7 @@ const TaskList = ({ project, canEdit }) => {
 
       {/* Kanban доска */}
       <Row className="g-3">
-        {project.settings.columns.map(column => (
+        {columns.map(column => (
           <Col key={column} md={4} lg={3}>
             <Card className="h-100">
               <Card.Header className="bg-light">
@@ -271,70 +341,76 @@ const TaskList = ({ project, canEdit }) => {
                   <Badge bg="secondary">{tasksByStatus[column]?.length || 0}</Badge>
                 </div>
               </Card.Header>
-              <Card.Body className="p-2">
-                {tasksByStatus[column]?.map(task => (
-                  <Card 
-                    key={task._id} 
-                    className="mb-2 shadow-sm"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      setSelectedTask(task);
-                      setShowTaskModal(true);
-                    }}
-                  >
-                    <Card.Body className="p-3">
-                      <div className="d-flex justify-content-between align-items-start mb-2">
-                        <h6 className="mb-0">{task.title}</h6>
-                        <Badge bg={getPriorityVariant(task.priority)} size="sm">
-                          {getPriorityText(task.priority)}
-                        </Badge>
-                      </div>
-                      {task.description && (
-                        <p className="small text-muted mb-2">
-                          {task.description.length > 100 
-                            ? `${task.description.substring(0, 100)}...` 
-                            : task.description
-                          }
-                        </p>
-                      )}
-                      <div className="d-flex justify-content-between align-items-center">
-                        <small className="text-muted">
-                          {new Date(task.createdAt).toLocaleDateString('ru-RU')}
-                        </small>
-                        <div className="d-flex gap-1">
-                          {canEdit && (
-                            <>
-                              <Button
-                                variant="outline-danger"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteTask(task._id);
-                                }}
-                              >
-                                Удалить
-                              </Button>
-                              <Form.Select
-                                size="sm"
-                                value={task.status}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  handleStatusChange(task._id, e.target.value);
-                                }}
-                                style={{ width: 'auto' }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {project.settings.columns.map(col => (
-                                  <option key={col} value={col}>{col}</option>
-                                ))}
-                              </Form.Select>
-                            </>
-                          )}
+              <Card.Body className="p-2" style={{ minHeight: '500px' }}>
+                {tasksByStatus[column]?.map(task => {
+                  if (!task || !task._id) return null;
+                  
+                  return (
+                    <Card 
+                      key={task._id} 
+                      className="mb-2 shadow-sm hover-shadow"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        setSelectedTask(task);
+                        setShowTaskModal(true);
+                      }}
+                    >
+                      <Card.Body className="p-3">
+                        <div className="d-flex justify-content-between align-items-start mb-2">
+                          <h6 className="mb-0">{task.title}</h6>
+                          <Badge bg={getPriorityVariant(task.priority)} size="sm">
+                            {getPriorityText(task.priority)}
+                          </Badge>
                         </div>
-                      </div>
-                    </Card.Body>
-                  </Card>
-                ))}
+                        
+                        {task.description && (
+                          <p className="small text-muted mb-2">
+                            {task.description.length > 100 
+                              ? `${task.description.substring(0, 100)}...` 
+                              : task.description
+                            }
+                          </p>
+                        )}
+                        
+                        <div className="d-flex justify-content-between align-items-center">
+                          <small className="text-muted">
+                            {task.createdAt ? new Date(task.createdAt).toLocaleDateString('ru-RU') : ''}
+                          </small>
+                          <div className="d-flex gap-1">
+                            {canEdit && (
+                              <>
+                                <Button
+                                  variant="outline-danger"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteTask(task._id);
+                                  }}
+                                >
+                                  Удалить
+                                </Button>
+                                <Form.Select
+                                  size="sm"
+                                  value={task.status}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    handleStatusChange(task._id, e.target.value);
+                                  }}
+                                  style={{ width: 'auto' }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {columns.map(col => (
+                                    <option key={col} value={col}>{col}</option>
+                                  ))}
+                                </Form.Select>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  );
+                })}
                 
                 {(!tasksByStatus[column] || tasksByStatus[column].length === 0) && (
                   <div className="text-center text-muted py-4">
@@ -347,7 +423,7 @@ const TaskList = ({ project, canEdit }) => {
         ))}
       </Row>
 
-      {tasks.length === 0 && !showCreateForm && (
+      {filteredTasks.length === 0 && !showCreateForm && (
         <Card className="text-center py-5">
           <Card.Body>
             <h5>Задачи отсутствуют</h5>
@@ -374,7 +450,7 @@ const TaskList = ({ project, canEdit }) => {
         task={selectedTask}
         project={project}
         onTaskUpdated={() => {
-          dispatch(fetchProjectTasks(project._id));
+          console.log(`🔄 TaskList: Задача обновлена`);
         }}
         onTaskDeleted={(taskId) => {
           handleDeleteTask(taskId);
