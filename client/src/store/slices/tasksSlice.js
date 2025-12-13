@@ -69,6 +69,78 @@ export const deleteTask = createAsyncThunk(
   }
 );
 
+export const getUserTaskStats = createAsyncThunk(
+  'tasks/getUserTaskStats',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await taskService.getUserTaskStats();
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка загрузки статистики');
+    }
+  }
+);
+
+export const getProjectStats = createAsyncThunk(
+  'tasks/getProjectStats',
+  async ({ projectId, timeRange = 'month' }, { rejectWithValue }) => {
+    try {
+      if (!projectId) {
+        throw new Error('Project ID is required');
+      }
+      
+      const response = await taskService.getProjectStats(projectId, timeRange);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка загрузки статистики проекта');
+    }
+  }
+);
+
+export const getRecentActivity = createAsyncThunk(
+  'tasks/getRecentActivity',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await taskService.getRecentActivity();
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка загрузки активности');
+    }
+  }
+);
+
+export const addComment = createAsyncThunk(
+  'tasks/addComment',
+  async ({ taskId, content, mentions = [] }, { rejectWithValue }) => {
+    try {
+      if (!taskId || !content) {
+        throw new Error('Task ID and content are required');
+      }
+      
+      const response = await taskService.addComment(taskId, { content, mentions });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка добавления комментария');
+    }
+  }
+);
+
+export const updateTaskStatus = createAsyncThunk(
+  'tasks/updateTaskStatus',
+  async ({ taskId, status, position }, { rejectWithValue }) => {
+    try {
+      if (!taskId || !status) {
+        throw new Error('Task ID and status are required');
+      }
+      
+      const response = await taskService.updateTaskStatus(taskId, { status, position });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка обновления статуса');
+    }
+  }
+);
+
 const tasksSlice = createSlice({
   name: 'tasks',
   initialState: {
@@ -79,7 +151,12 @@ const tasksSlice = createSlice({
     operationError: null,
     currentProjectId: null,
     lastFetchTime: null,
-    loadedProjects: {}
+    
+    taskStats: null,
+    projectStats: null,
+    recentActivity: null,
+    statsLoading: false,
+    statsError: null
   },
   reducers: {
     clearTasks: (state) => {
@@ -92,51 +169,20 @@ const tasksSlice = createSlice({
     clearError: (state) => {
       state.error = null;
       state.operationError = null;
+      state.statsError = null;
     },
     setCurrentProjectId: (state, action) => {
       state.currentProjectId = action.payload;
     },
-    addTaskFromSocket: (state, action) => {
-      const newTask = action.payload;
-      if (!newTask || !newTask._id) return;
-      
-      const taskProjectId = newTask.project?._id || newTask.project;
-      if (state.currentProjectId && taskProjectId !== state.currentProjectId) {
-        return;
-      }
-      
-      const existingTaskIndex = state.items.findIndex(task => task._id === newTask._id);
-      if (existingTaskIndex === -1) {
-        state.items.push(newTask);
-      }
-    },
-    updateTaskFromSocket: (state, action) => {
-      const updatedTask = action.payload;
-      if (!updatedTask || !updatedTask._id) return;
-      
-      const index = state.items.findIndex(task => task._id === updatedTask._id);
-      if (index !== -1) {
-        state.items[index] = { ...state.items[index], ...updatedTask };
-      }
-    },
-    deleteTaskFromSocket: (state, action) => {
-      const taskId = action.payload;
-      if (!taskId) return;
-      
-      state.items = state.items.filter(task => task._id !== taskId);
-    },
-    clearProjectTasks: (state, action) => {
-      const projectId = action.payload;
-      if (projectId === state.currentProjectId) {
-        state.items = state.items.filter(task => {
-          const taskProjectId = task.project?._id || task.project;
-          return taskProjectId !== projectId;
-        });
-      }
-    },
-    // Новый reducer для предотвращения частых загрузок
     updateLastFetchTime: (state) => {
       state.lastFetchTime = Date.now();
+    },
+    
+    clearStats: (state) => {
+      state.taskStats = null;
+      state.projectStats = null;
+      state.recentActivity = null;
+      state.statsError = null;
     }
   },
   extraReducers: (builder) => {
@@ -153,34 +199,19 @@ const tasksSlice = createSlice({
         
         const { projectId, tasks } = action.payload;
         
-        // Устанавливаем ID текущего проекта
         state.currentProjectId = projectId;
         
-        // Фильтруем только валидные задачи
         const validTasks = tasks.filter(task => task && task._id);
-        
-        // Создаем Map для удаления дубликатов
         const tasksMap = new Map();
-        
         validTasks.forEach(task => {
-          const taskProjectId = task.project?._id || task.project;
-          if (taskProjectId === projectId) {
-            tasksMap.set(task._id, task);
-          }
+          tasksMap.set(task._id, task);
         });
-        
-        // Сохраняем в loadedProjects для кэширования
-        state.loadedProjects[projectId] = {
-          tasks: Array.from(tasksMap.values()),
-          timestamp: Date.now()
-        };
         
         state.items = Array.from(tasksMap.values());
       })
       .addCase(fetchProjectTasks.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload || 'Ошибка загрузки задач';
-        state.currentProjectId = null;
       })
       .addCase(createTask.pending, (state) => {
         state.operationLoading = true;
@@ -193,13 +224,6 @@ const tasksSlice = createSlice({
           const exists = state.items.find(task => task._id === newTask._id);
           if (!exists) {
             state.items.push(newTask);
-            
-            // Обновляем кэш
-            const projectId = newTask.project?._id || newTask.project;
-            if (state.loadedProjects[projectId]) {
-              state.loadedProjects[projectId].tasks = [...state.items];
-              state.loadedProjects[projectId].timestamp = Date.now();
-            }
           }
         }
       })
@@ -218,16 +242,6 @@ const tasksSlice = createSlice({
           const index = state.items.findIndex(t => t._id === updatedTask._id);
           if (index !== -1) {
             state.items[index] = { ...state.items[index], ...updatedTask };
-            
-            // Обновляем кэш
-            const projectId = updatedTask.project?._id || updatedTask.project;
-            if (state.loadedProjects[projectId]) {
-              const cacheIndex = state.loadedProjects[projectId].tasks.findIndex(t => t._id === updatedTask._id);
-              if (cacheIndex !== -1) {
-                state.loadedProjects[projectId].tasks[cacheIndex] = { ...state.loadedProjects[projectId].tasks[cacheIndex], ...updatedTask };
-                state.loadedProjects[projectId].timestamp = Date.now();
-              }
-            }
           }
         }
       })
@@ -239,16 +253,91 @@ const tasksSlice = createSlice({
         const { taskId } = action.payload;
         if (taskId) {
           state.items = state.items.filter(t => t._id !== taskId);
-          
-          // Обновляем кэш для всех проектов
-          Object.keys(state.loadedProjects).forEach(projectId => {
-            state.loadedProjects[projectId].tasks = state.loadedProjects[projectId].tasks.filter(t => t._id !== taskId);
-            state.loadedProjects[projectId].timestamp = Date.now();
-          });
         }
       })
       .addCase(deleteTask.rejected, (state, action) => {
         state.operationError = action.payload || 'Ошибка удаления задачи';
+      })
+      
+      .addCase(getUserTaskStats.pending, (state) => {
+        state.statsLoading = true;
+        state.statsError = null;
+      })
+      .addCase(getUserTaskStats.fulfilled, (state, action) => {
+        state.statsLoading = false;
+        state.taskStats = action.payload.stats;
+      })
+      .addCase(getUserTaskStats.rejected, (state, action) => {
+        state.statsLoading = false;
+        state.statsError = action.payload || 'Ошибка загрузки статистики';
+      })
+      
+      .addCase(getProjectStats.pending, (state) => {
+        state.statsLoading = true;
+        state.statsError = null;
+      })
+      .addCase(getProjectStats.fulfilled, (state, action) => {
+        state.statsLoading = false;
+        state.projectStats = action.payload.stats;
+      })
+      .addCase(getProjectStats.rejected, (state, action) => {
+        state.statsLoading = false;
+        state.statsError = action.payload || 'Ошибка загрузки статистики проекта';
+      })
+      
+      .addCase(getRecentActivity.pending, (state) => {
+        state.statsLoading = true;
+        state.statsError = null;
+      })
+      .addCase(getRecentActivity.fulfilled, (state, action) => {
+        state.statsLoading = false;
+        state.recentActivity = action.payload.activities;
+      })
+      .addCase(getRecentActivity.rejected, (state, action) => {
+        state.statsLoading = false;
+        state.statsError = action.payload || 'Ошибка загрузки активности';
+      })
+      
+      .addCase(addComment.pending, (state) => {
+        state.operationLoading = true;
+        state.operationError = null;
+      })
+      .addCase(addComment.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        const { comment } = action.payload;
+        const taskIndex = state.items.findIndex(t => t._id === comment.taskId);
+        if (taskIndex !== -1) {
+          if (!state.items[taskIndex].comments) {
+            state.items[taskIndex].comments = [];
+          }
+          state.items[taskIndex].comments.push(comment);
+        }
+      })
+      .addCase(addComment.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.operationError = action.payload || 'Ошибка добавления комментария';
+      })
+      
+      .addCase(updateTaskStatus.pending, (state) => {
+        state.operationLoading = true;
+        state.operationError = null;
+      })
+      .addCase(updateTaskStatus.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        const updatedTask = action.payload.task;
+        if (updatedTask && updatedTask._id) {
+          const index = state.items.findIndex(t => t._id === updatedTask._id);
+          if (index !== -1) {
+            state.items[index].status = updatedTask.status;
+            if (updatedTask.position !== undefined) {
+              state.items[index].position = updatedTask.position;
+            }
+          }
+        }
+      })
+      .addCase(updateTaskStatus.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.operationError = action.payload || 'Ошибка обновления статуса';
       });
   }
 });
@@ -257,10 +346,7 @@ export const {
   clearTasks, 
   clearError,
   setCurrentProjectId,
-  addTaskFromSocket,
-  updateTaskFromSocket,
-  deleteTaskFromSocket,
-  clearProjectTasks,
-  updateLastFetchTime
+  updateLastFetchTime,
+  clearStats
 } = tasksSlice.actions;
 export default tasksSlice.reducer;

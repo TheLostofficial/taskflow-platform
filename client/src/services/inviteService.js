@@ -30,30 +30,70 @@ api.interceptors.response.use(
 );
 
 export const inviteService = {
+  // Создать инвайт - ИСПРАВЛЕН URL
   async createInvite(projectId, inviteData) {
-    const response = await api.post(`/projects/${projectId}/invites`, inviteData);
-    return response.data;
+    try {
+      const response = await api.post(`/invites/${projectId}/invites`, inviteData);
+      return response.data;
+    } catch (error) {
+      console.error('Create invite error:', error);
+      throw new Error(error.response?.data?.message || 'Ошибка создания инвайта');
+    }
   },
 
+  // Получить инвайты проекта - ИСПРАВЛЕН URL
   async getProjectInvites(projectId) {
-    const response = await api.get(`/projects/${projectId}/invites`);
-    return response.data;
+    try {
+      const response = await api.get(`/invites/${projectId}/invites`);
+      return response.data;
+    } catch (error) {
+      console.error('Get invites error:', error);
+      throw new Error(error.response?.data?.message || 'Ошибка загрузки инвайтов');
+    }
   },
 
-  async getInviteInfo(code, isAuthenticated = true) {
-    const endpoint = isAuthenticated ? `/invites/${code}` : `/public-invites/${code}`;
-    const response = await api.get(endpoint);
-    return response.data;
+  // Получить информацию об инвайте (для авторизованных)
+  async getInviteInfo(code) {
+    try {
+      const response = await api.get(`/invites/invites/${code}`);
+      return response.data;
+    } catch (error) {
+      console.error('Get invite info error:', error);
+      throw new Error(error.response?.data?.message || 'Ошибка получения информации об инвайте');
+    }
   },
 
+  // Получить публичную информацию об инвайте (без авторизации)
+  async getPublicInviteInfo(code) {
+    try {
+      const response = await api.get(`/invites/public-invites/${code}`);
+      return response.data;
+    } catch (error) {
+      console.error('Get public invite error:', error);
+      throw new Error(error.response?.data?.message || 'Ошибка получения информации об инвайте');
+    }
+  },
+
+  // Принять инвайт
   async acceptInvite(code) {
-    const response = await api.post(`/invites/${code}/accept`);
-    return response.data;
+    try {
+      const response = await api.post(`/invites/invites/${code}/accept`);
+      return response.data;
+    } catch (error) {
+      console.error('Accept invite error:', error);
+      throw new Error(error.response?.data?.message || 'Ошибка принятия инвайта');
+    }
   },
 
+  // Удалить/деактивировать инвайт - ИСПРАВЛЕН URL
   async deleteInvite(projectId, code) {
-    const response = await api.delete(`/projects/${projectId}/invites/${code}`);
-    return response.data;
+    try {
+      const response = await api.delete(`/invites/${projectId}/invites/${code}`);
+      return response.data;
+    } catch (error) {
+      console.error('Delete invite error:', error);
+      throw new Error(error.response?.data?.message || 'Ошибка удаления инвайта');
+    }
   }
 };
 

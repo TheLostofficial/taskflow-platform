@@ -1,13 +1,10 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { Provider } from 'react-redux';
+import { store } from './store/store';
+import './styles/global.css';
 
-// Components
-import Header from './components/common/Header';
-import Footer from './components/common/Footer';
-import ProtectedRoute from './components/common/ProtectedRoute';
-
-// Pages
+// Импорт страниц
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -15,59 +12,100 @@ import DashboardPage from './pages/DashboardPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import ProfilePage from './pages/ProfilePage';
+import SettingsPage from './pages/SettingsPage';
+import NotificationsPage from './pages/NotificationsPage';
+import HelpPage from './pages/HelpPage';
 import InvitePage from './pages/InvitePage';
 
-// Styles
-import './styles/global.css';
+// Импорт компонентов
+import Header from './components/common/Header';
+import Footer from './components/common/Footer';
+import ProtectedRoute from './components/common/ProtectedRoute';
+
+// Компонент для отлова глобальных ошибок
+const ErrorBoundary = ({ children }) => {
+  useEffect(() => {
+    const handleError = (event) => {
+      console.error('Глобальная ошибка:', event.error);
+    };
+
+    window.addEventListener('error', handleError);
+    
+    return () => {
+      window.removeEventListener('error', handleError);
+    };
+  }, []);
+
+  return children;
+};
+
+const AppContent = () => {
+  return (
+    <ErrorBoundary>
+      <Router>
+        <div className="app d-flex flex-column min-vh-100">
+          <Header />
+          <main className="flex-grow-1">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              
+              <Route path="/dashboard" element={
+                <ProtectedRoute>
+                  <DashboardPage />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/projects" element={
+                <ProtectedRoute>
+                  <ProjectsPage />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/projects/:id" element={
+                <ProtectedRoute>
+                  <ProjectDetailPage />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/profile" element={
+                <ProtectedRoute>
+                  <ProfilePage />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/settings" element={
+                <ProtectedRoute>
+                  <SettingsPage />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/notifications" element={
+                <ProtectedRoute>
+                  <NotificationsPage />
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/help" element={<HelpPage />} />
+              
+              <Route path="/invite/:token" element={<InvitePage />} />
+              
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </main>
+          <Footer />
+        </div>
+      </Router>
+    </ErrorBoundary>
+  );
+};
 
 function App() {
-  const { isAuthenticated } = useSelector((state) => state.auth || {});
-
   return (
-    <Router>
-      <div className="app d-flex flex-column min-vh-100">
-        <Header />
-        <main className="flex-grow-1">
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={
-              isAuthenticated ? <Navigate to="/dashboard" /> : <LoginPage />
-            } />
-            <Route path="/register" element={
-              isAuthenticated ? <Navigate to="/dashboard" /> : <RegisterPage />
-            } />
-            <Route path="/invite/:token" element={<InvitePage />} />
-            
-            {/* Protected Routes */}
-            <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/projects" element={
-              <ProtectedRoute>
-                <ProjectsPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/projects/:id" element={
-              <ProtectedRoute>
-                <ProjectDetailPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/profile" element={
-              <ProtectedRoute>
-                <ProfilePage />
-              </ProtectedRoute>
-            } />
-            
-            {/* 404 Route */}
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
-        </main>
-        <Footer />
-      </div>
-    </Router>
+    <Provider store={store}>
+      <AppContent />
+    </Provider>
   );
 }
 

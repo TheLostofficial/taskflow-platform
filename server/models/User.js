@@ -2,75 +2,77 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'Имя обязательно'],
+    trim: true,
+    maxlength: [50, 'Имя не может превышать 50 символов']
+  },
   email: {
     type: String,
-    required: [true, 'Email is required'],
+    required: [true, 'Email обязателен'],
     unique: true,
-    lowercase: true,
     trim: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+    lowercase: true,
+    match: [/^\S+@\S+\.\S+$/, 'Некорректный email']
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
-    minlength: [6, 'Password must be at least 6 characters'],
+    required: [true, 'Пароль обязателен'],
+    minlength: [6, 'Пароль должен быть не менее 6 символов'],
     select: false
-  },
-  name: {
-    type: String,
-    required: [true, 'Name is required'],
-    trim: true,
-    maxlength: [50, 'Name cannot exceed 50 characters']
-  },
-  avatar: {
-    type: String,
-    default: null
-  },
-  role: {
-    type: String,
-    enum: ['user', 'admin'],
-    default: 'user'
   },
   bio: {
     type: String,
-    maxlength: [500, 'Bio cannot exceed 500 characters'],
+    trim: true,
+    maxlength: [500, 'Биография не может превышать 500 символов'],
     default: ''
   },
   skills: [{
     type: String,
     trim: true
   }],
+  avatar: {
+    type: String,
+    default: 'default-avatar.png'
+  },
   preferences: {
+    notifications: {
+      emailNotifications: { type: Boolean, default: true },
+      taskAssignments: { type: Boolean, default: true },
+      mentions: { type: Boolean, default: true },
+      deadlineReminders: { type: Boolean, default: true },
+      projectUpdates: { type: Boolean, default: false }
+    },
     theme: {
       type: String,
-      enum: ['light', 'dark'],
+      enum: ['light', 'dark', 'auto'],
       default: 'light'
     },
-    notifications: {
-      email: { type: Boolean, default: true },
-      browser: { type: Boolean, default: true },
-      mobile: { type: Boolean, default: false }
+    language: {
+      type: String,
+      default: 'ru'
     }
   },
-  isEmailVerified: {
-    type: Boolean,
-    default: false
+  status: {
+    type: String,
+    enum: ['active', 'inactive', 'banned'],
+    default: 'active'
   },
   lastLogin: {
     type: Date,
-    default: null
+    default: Date.now
   }
 }, {
   timestamps: true
 });
 
-userSchema.index({ email: 1 });
-
+// Хеширование пароля перед сохранением
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   
   try {
-    const salt = await bcrypt.genSalt(12);
+    const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
     next();
   } catch (error) {
@@ -78,13 +80,9 @@ userSchema.pre('save', async function(next) {
   }
 });
 
+// Метод проверки пароля
 userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
-};
-
-userSchema.methods.updateLastLogin = async function() {
-  this.lastLogin = new Date();
-  await this.save();
 };
 
 export default mongoose.model('User', userSchema);

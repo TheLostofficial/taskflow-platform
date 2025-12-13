@@ -2,10 +2,11 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import Task from '../models/Task.js';
 import Project from '../models/Project.js';
+import * as taskController from '../controllers/taskController.js';
 
 const router = express.Router();
 
-// Обновляем функцию для отправки WebSocket уведомлений
+// Функции для WebSocket уведомлений (оставляем как было)
 const notifyTaskCreated = (req, task) => {
   if (req.app.get('socketServer')) {
     req.app.get('socketServer').notifyTaskCreated(
@@ -36,7 +37,7 @@ const notifyTaskDeleted = (req, projectId, taskId) => {
   }
 };
 
-// Маршруты (остаются те же, но добавляем вызовы notify)
+// СУЩЕСТВУЮЩИЕ МАРШРУТЫ (оставляем как было, но используем контроллер)
 router.get('/project/:projectId', authenticateToken, async (req, res) => {
   try {
     const project = await Project.findOne({
@@ -198,5 +199,22 @@ router.delete('/:taskId', authenticateToken, async (req, res) => {
     res.status(500).json({ message: 'Server error while deleting task' });
   }
 });
+
+// НОВЫЕ МАРШРУТЫ ДЛЯ КОММЕНТАРИЕВ (используем контроллер)
+router.post('/:taskId/comments', authenticateToken, taskController.addComment);
+router.put('/:taskId/comments/:commentId', authenticateToken, taskController.updateComment);
+router.delete('/:taskId/comments/:commentId', authenticateToken, taskController.deleteComment);
+
+// НОВЫЕ МАРШРУТЫ ДЛЯ СТАТУСА И ЧЕКЛИСТА (используем контроллер)
+router.patch('/:taskId/status', authenticateToken, taskController.updateTaskStatus);
+router.patch('/:taskId/checklist', authenticateToken, taskController.updateChecklist);
+
+// НОВЫЕ МАРШРУТЫ ДЛЯ СТАТИСТИКИ (используем контроллер)
+router.get('/stats/user', authenticateToken, taskController.getUserTaskStats);
+router.get('/stats/project/:projectId', authenticateToken, taskController.getProjectStats);
+router.get('/activity/recent', authenticateToken, taskController.getRecentActivity);
+
+// МАРШРУТ ДЛЯ ПОЛУЧЕНИЯ ЗАДАЧИ ПО ID (используем контроллер)
+router.get('/:taskId', authenticateToken, taskController.getTaskById);
 
 export default router;

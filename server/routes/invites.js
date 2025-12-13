@@ -5,7 +5,8 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
-router.post('/projects/:projectId/invites', authenticateToken, async (req, res) => {
+// Создать инвайт - УБРАЛИ /projects из пути
+router.post('/:projectId/invites', authenticateToken, async (req, res) => {
   try {
     const { projectId } = req.params;
     const { role, expiresInDays, maxUses, note } = req.body;
@@ -59,7 +60,8 @@ router.post('/projects/:projectId/invites', authenticateToken, async (req, res) 
   }
 });
 
-router.get('/projects/:projectId/invites', authenticateToken, async (req, res) => {
+// Получить инвайты проекта - УБРАЛИ /projects из пути
+router.get('/:projectId/invites', authenticateToken, async (req, res) => {
   try {
     const { projectId } = req.params;
     
@@ -100,6 +102,43 @@ router.get('/projects/:projectId/invites', authenticateToken, async (req, res) =
   }
 });
 
+// Удалить инвайт - УБРАЛИ /projects из пути
+router.delete('/:projectId/invites/:code', authenticateToken, async (req, res) => {
+  try {
+    const { projectId, code } = req.params;
+    
+    const project = await Project.findOne({
+      _id: projectId,
+      $or: [
+        { owner: req.user._id },
+        { 'members.user': req.user._id, 'members.permissions.canInvite': true }
+      ]
+    });
+    
+    if (!project) {
+      return res.status(404).json({ 
+        message: 'Проект не найден или у вас нет прав для управления инвайтами' 
+      });
+    }
+    
+    const success = await project.deactivateInvite(code);
+    
+    if (!success) {
+      return res.status(404).json({ 
+        message: 'Инвайт не найден' 
+      });
+    }
+    
+    res.json({
+      message: 'Инвайт успешно деактивирован'
+    });
+  } catch (error) {
+    console.error('Deactivate invite error:', error);
+    res.status(500).json({ message: 'Ошибка сервера при деактивации инвайта' });
+  }
+});
+
+// Остальные маршруты остаются без изменений
 router.get('/invites/:code', authenticateToken, async (req, res) => {
   try {
     const { code } = req.params;
@@ -200,41 +239,6 @@ router.post('/invites/:code/accept', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Accept invite error:', error);
     res.status(500).json({ message: 'Ошибка сервера при принятии инвайта' });
-  }
-});
-
-router.delete('/projects/:projectId/invites/:code', authenticateToken, async (req, res) => {
-  try {
-    const { projectId, code } = req.params;
-    
-    const project = await Project.findOne({
-      _id: projectId,
-      $or: [
-        { owner: req.user._id },
-        { 'members.user': req.user._id, 'members.permissions.canInvite': true }
-      ]
-    });
-    
-    if (!project) {
-      return res.status(404).json({ 
-        message: 'Проект не найден или у вас нет прав для управления инвайтами' 
-      });
-    }
-    
-    const success = await project.deactivateInvite(code);
-    
-    if (!success) {
-      return res.status(404).json({ 
-        message: 'Инвайт не найден' 
-      });
-    }
-    
-    res.json({
-      message: 'Инвайт успешно деактивирован'
-    });
-  } catch (error) {
-    console.error('Deactivate invite error:', error);
-    res.status(500).json({ message: 'Ошибка сервера при деактивации инвайта' });
   }
 });
 

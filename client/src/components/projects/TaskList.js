@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Row, Col, Card, Button, Badge, Form, Spinner, Alert, Dropdown, ButtonGroup } from 'react-bootstrap';
+import React, { useState, useMemo } from 'react';
+import { Row, Col, Card, Button, Badge, Form, Spinner, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { useDispatch, useSelector } from 'react-redux';
 import { createTask, updateTask, deleteTask } from '../../store/slices/tasksSlice';
 import TaskDetailModal from './TaskDetailModal';
@@ -10,10 +10,7 @@ const TaskList = ({ project, canEdit }) => {
   const dispatch = useDispatch();
   const { 
     items: tasks = [], 
-    loading, 
-    error, 
-    operationLoading, 
-    currentProjectId 
+    operationLoading 
   } = useSelector(state => state.tasks || { items: [] });
   
   const { user } = useSelector(state => state.auth || {});
@@ -21,7 +18,6 @@ const TaskList = ({ project, canEdit }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
-  const [filteredTasks, setFilteredTasks] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
   const [newTask, setNewTask] = useState({
     title: '',
@@ -30,38 +26,13 @@ const TaskList = ({ project, canEdit }) => {
     priority: 'medium'
   });
 
-  // Если проект не загружен
-  if (!project?._id) {
-    return (
-      <Alert variant="warning">
-        Проект не загружен. Невозможно отобразить задачи.
-      </Alert>
-    );
-  }
-
-  // Фильтрация задач текущего проекта
-  useEffect(() => {
-    if (!tasks || !Array.isArray(tasks)) {
-      setFilteredTasks([]);
-      return;
-    }
-    
-    // Фильтруем задачи текущего проекта и удаляем дубликаты
-    const tasksMap = new Map();
-    
-    tasks.forEach(task => {
-      if (task && task._id) {
-        const taskProjectId = task.project?._id || task.project;
-        if (taskProjectId === project._id) {
-          tasksMap.set(task._id, task);
-        }
-      }
+  // Фильтруем задачи только для текущего проекта
+  const projectTasks = useMemo(() => {
+    if (!tasks || !Array.isArray(tasks)) return [];
+    return tasks.filter(task => {
+      const taskProjectId = task.project?._id || task.project;
+      return taskProjectId === project._id;
     });
-    
-    const uniqueTasks = Array.from(tasksMap.values());
-    console.log(`📊 TaskList: Уникальных задач проекта ${project._id}: ${uniqueTasks.length} из ${tasks.length}`);
-    
-    setFilteredTasks(uniqueTasks);
   }, [tasks, project._id]);
 
   const handleCreateTask = async (e) => {
@@ -69,7 +40,6 @@ const TaskList = ({ project, canEdit }) => {
     if (!newTask.title.trim() || !user?._id) return;
 
     try {
-      console.log(`📝 TaskList: Создание задачи для проекта ${project._id}`);
       await dispatch(createTask({
         ...newTask,
         project: project._id,
@@ -89,14 +59,10 @@ const TaskList = ({ project, canEdit }) => {
   };
 
   const handleDeleteTask = async (taskId) => {
-    if (!taskId) {
-      console.error('Task ID is null or undefined');
-      return;
-    }
+    if (!taskId) return;
     
     if (window.confirm('Вы уверены, что хотите удалить эту задачу?')) {
       try {
-        console.log(`🗑️ TaskList: Удаление задачи ${taskId}`);
         await dispatch(deleteTask(taskId)).unwrap();
       } catch (error) {
         console.error('Failed to delete task:', error);
@@ -105,13 +71,9 @@ const TaskList = ({ project, canEdit }) => {
   };
 
   const handleStatusChange = async (taskId, newStatus) => {
-    if (!taskId) {
-      console.error('Task ID is null or undefined');
-      return;
-    }
+    if (!taskId) return;
     
     try {
-      console.log(`🔄 TaskList: Изменение статуса задачи ${taskId} на ${newStatus}`);
       await dispatch(updateTask({
         taskId,
         taskData: { status: newStatus }
@@ -143,12 +105,11 @@ const TaskList = ({ project, canEdit }) => {
 
   const handleExportCSV = () => {
     try {
-      if (!filteredTasks.length) {
+      if (!projectTasks.length) {
         alert('Нет задач для экспорта');
         return;
       }
-      console.log(`📤 TaskList: Экспорт ${filteredTasks.length} задач в CSV`);
-      exportService.exportTasksToCSV(filteredTasks, project.name);
+      exportService.exportTasksToCSV(projectTasks, project.name);
     } catch (error) {
       console.error('Export error:', error);
       alert('Ошибка при экспорте в CSV');
@@ -157,12 +118,11 @@ const TaskList = ({ project, canEdit }) => {
 
   const handleExportJSON = () => {
     try {
-      if (!filteredTasks.length) {
+      if (!projectTasks.length) {
         alert('Нет задач для экспорта');
         return;
       }
-      console.log(`📤 TaskList: Экспорт ${filteredTasks.length} задач в JSON`);
-      exportService.exportTasksToJSON(filteredTasks, project.name);
+      exportService.exportTasksToJSON(projectTasks, project.name);
     } catch (error) {
       console.error('Export error:', error);
       alert('Ошибка при экспорте в JSON');
@@ -175,33 +135,18 @@ const TaskList = ({ project, canEdit }) => {
     const columns = project.settings?.columns || ['To Do', 'In Progress', 'Done'];
     
     columns.forEach(column => {
-      groups[column] = filteredTasks.filter(task => task.status === column);
+      groups[column] = projectTasks.filter(task => task.status === column);
     });
     
     return groups;
-  }, [filteredTasks, project.settings?.columns]);
+  }, [projectTasks, project.settings?.columns]);
 
   const columns = project.settings?.columns || ['To Do', 'In Progress', 'Done'];
 
-  if (loading) {
-    return (
-      <div className="text-center py-4">
-        <Spinner animation="border" role="status">
-          <span className="visually-hidden">Загрузка задач...</span>
-        </Spinner>
-        <p className="mt-2">Загрузка задач...</p>
-      </div>
-    );
-  }
-
   return (
     <div>
-      {error && <Alert variant="danger" onClose={() => {}} dismissible>{error}</Alert>}
-
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h5>
-          Задачи проекта ({filteredTasks.length})
-        </h5>
+        <h5>Задачи проекта ({projectTasks.length})</h5>
         <div className="d-flex gap-2">
           <ButtonGroup>
             <Button 
@@ -217,10 +162,10 @@ const TaskList = ({ project, canEdit }) => {
                 📤 Экспорт
               </Dropdown.Toggle>
               <Dropdown.Menu>
-                <Dropdown.Item onClick={handleExportCSV} disabled={!filteredTasks.length}>
+                <Dropdown.Item onClick={handleExportCSV} disabled={!projectTasks.length}>
                   Экспорт в CSV
                 </Dropdown.Item>
-                <Dropdown.Item onClick={handleExportJSON} disabled={!filteredTasks.length}>
+                <Dropdown.Item onClick={handleExportJSON} disabled={!projectTasks.length}>
                   Экспорт в JSON
                 </Dropdown.Item>
               </Dropdown.Menu>
@@ -239,16 +184,13 @@ const TaskList = ({ project, canEdit }) => {
         </div>
       </div>
 
-      {/* Компонент фильтров */}
       {showFilters && (
         <TaskFilters 
-          tasks={filteredTasks}
-          onFilterChange={(filtered) => setFilteredTasks(filtered)}
+          tasks={projectTasks}
           projectMembers={project.members}
         />
       )}
 
-      {/* Форма создания задачи */}
       {showCreateForm && (
         <Card className="mb-4">
           <Card.Header>
@@ -423,7 +365,7 @@ const TaskList = ({ project, canEdit }) => {
         ))}
       </Row>
 
-      {filteredTasks.length === 0 && !showCreateForm && (
+      {projectTasks.length === 0 && !showCreateForm && (
         <Card className="text-center py-5">
           <Card.Body>
             <h5>Задачи отсутствуют</h5>
@@ -440,7 +382,7 @@ const TaskList = ({ project, canEdit }) => {
         </Card>
       )}
 
-      {/* Модальное окно деталей задачи */}
+      {/* Модальное окно деталей задачи - всегда рендерится, но с защитой внутри */}
       <TaskDetailModal
         show={showTaskModal}
         onHide={() => {
@@ -449,12 +391,6 @@ const TaskList = ({ project, canEdit }) => {
         }}
         task={selectedTask}
         project={project}
-        onTaskUpdated={() => {
-          console.log(`🔄 TaskList: Задача обновлена`);
-        }}
-        onTaskDeleted={(taskId) => {
-          handleDeleteTask(taskId);
-        }}
       />
     </div>
   );

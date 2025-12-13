@@ -22,29 +22,32 @@ const ProjectSettings = ({ project, onUpdate }) => {
   const { user } = useSelector(state => state.auth || {});
 
   const [generalSettings, setGeneralSettings] = useState({
-    name: project.name || '',
-    description: project.description || '',
-    tags: project.tags ? project.tags.join(', ') : '',
-    isPublic: project.settings?.isPublic || false
+    name: '',
+    description: '',
+    tags: '',
+    isPublic: false
   });
 
   const [templateSettings, setTemplateSettings] = useState({
-    template: project.settings?.template || 'kanban',
-    columns: project.settings?.columns ? project.settings.columns.join('\n') : 'To Do\nIn Progress\nDone'
+    template: 'kanban',
+    columns: 'To Do\nIn Progress\nDone'
   });
 
   const [dangerSettings, setDangerSettings] = useState({
     confirmDelete: ''
   });
 
-  const isOwner = project.owner?._id === user?._id;
-  const isAdmin = project.members?.some(member => 
+  const isOwner = project?.owner?._id === user?._id;
+  const isAdmin = project?.members?.some(member => 
     member.user?._id === user?._id && 
     (member.role === 'owner' || member.role === 'admin')
   );
 
+  // Проверка прав доступа
+  const canViewSettings = isOwner || isAdmin;
+
   useEffect(() => {
-    if (project) {
+    if (project && project._id) {
       setGeneralSettings({
         name: project.name || '',
         description: project.description || '',
@@ -206,7 +209,14 @@ const ProjectSettings = ({ project, onUpdate }) => {
 
   const handleExportFullProject = () => {
     try {
-      exportService.exportProjectData(project, tasks);
+      const projectData = {
+        ...project,
+        tasks: tasks.filter(task => {
+          const taskProjectId = task.project?._id || task.project;
+          return taskProjectId === project._id;
+        })
+      };
+      exportService.exportProjectData(projectData, projectData.tasks);
       showMessage('Полный экспорт проекта завершен');
     } catch (error) {
       showMessage(error.message || 'Ошибка при экспорте', 'error');
@@ -265,6 +275,15 @@ const ProjectSettings = ({ project, onUpdate }) => {
     return (
       <Alert variant="warning">
         Проект не загружен
+      </Alert>
+    );
+  }
+
+  if (!canViewSettings) {
+    return (
+      <Alert variant="danger">
+        <Alert.Heading>Доступ запрещен</Alert.Heading>
+        <p>Только владелец или администратор проекта могут изменять его настройки.</p>
       </Alert>
     );
   }
@@ -384,12 +403,10 @@ const ProjectSettings = ({ project, onUpdate }) => {
                 <div className="mb-4">
                   <h6>Предпросмотр колонок:</h6>
                   <div className="d-flex flex-wrap gap-2">
-                    {templateSettings.columns.split('\n').map((column, index) => (
-                      column.trim() && (
-                        <Badge key={index} bg="outline-primary" text="dark" className="fs-6 p-2">
-                          {column.trim()}
-                        </Badge>
-                      )
+                    {templateSettings.columns.split('\n').filter(col => col.trim()).map((column, index) => (
+                      <Badge key={index} bg="outline-primary" text="dark" className="fs-6 p-2">
+                        {column.trim()}
+                      </Badge>
                     ))}
                   </div>
                 </div>
@@ -414,70 +431,72 @@ const ProjectSettings = ({ project, onUpdate }) => {
             </Card.Header>
             <Card.Body>
               {project.members && project.members.length > 0 ? (
-                <table className="table table-hover">
-                  <thead>
-                    <tr>
-                      <th>Участник</th>
-                      <th>Роль</th>
-                      <th>Дата присоединения</th>
-                      <th>Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {project.members.map((member, index) => (
-                      <tr key={index}>
-                        <td>
-                          <div className="d-flex align-items-center">
-                            {member.user?.avatar ? (
-                              <img 
-                                src={member.user.avatar} 
-                                alt={member.user.name}
-                                className="rounded-circle me-2"
-                                width="32"
-                                height="32"
-                              />
-                            ) : (
-                              <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2"
-                                style={{ width: '32px', height: '32px' }}>
-                                {member.user?.name?.charAt(0) || 'U'}
-                              </div>
-                            )}
-                            <div>
-                              <div className="fw-bold">{member.user?.name || 'Неизвестно'}</div>
-                              <small className="text-muted">{member.user?.email || ''}</small>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <Badge 
-                            bg={member.role === 'owner' ? 'primary' : 
-                                member.role === 'admin' ? 'warning' : 
-                                member.role === 'member' ? 'info' : 'secondary'}
-                            className="text-capitalize"
-                          >
-                            {member.role === 'owner' ? 'Владелец' :
-                             member.role === 'admin' ? 'Администратор' :
-                             member.role === 'member' ? 'Участник' : 'Наблюдатель'}
-                          </Badge>
-                        </td>
-                        <td>
-                          {member.joinedAt ? new Date(member.joinedAt).toLocaleDateString('ru-RU') : 'Неизвестно'}
-                        </td>
-                        <td>
-                          {isOwner && member.role !== 'owner' && (
-                            <Button
-                              variant="outline-primary"
-                              size="sm"
-                              onClick={() => handleOpenRoleModal(member)}
-                            >
-                              Изменить роль
-                            </Button>
-                          )}
-                        </td>
+                <div className="table-responsive">
+                  <table className="table table-hover">
+                    <thead>
+                      <tr>
+                        <th>Участник</th>
+                        <th>Роль</th>
+                        <th>Дата присоединения</th>
+                        <th>Действия</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {project.members.map((member, index) => (
+                        <tr key={index}>
+                          <td>
+                            <div className="d-flex align-items-center">
+                              {member.user?.avatar ? (
+                                <img 
+                                  src={member.user.avatar} 
+                                  alt={member.user.name}
+                                  className="rounded-circle me-2"
+                                  width="32"
+                                  height="32"
+                                />
+                              ) : (
+                                <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2"
+                                  style={{ width: '32px', height: '32px' }}>
+                                  {member.user?.name?.charAt(0) || 'U'}
+                                </div>
+                              )}
+                              <div>
+                                <div className="fw-bold">{member.user?.name || 'Неизвестно'}</div>
+                                <small className="text-muted">{member.user?.email || ''}</small>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <Badge 
+                              bg={member.role === 'owner' ? 'primary' : 
+                                  member.role === 'admin' ? 'warning' : 
+                                  member.role === 'member' ? 'info' : 'secondary'}
+                              className="text-capitalize"
+                            >
+                              {member.role === 'owner' ? 'Владелец' :
+                               member.role === 'admin' ? 'Администратор' :
+                               member.role === 'member' ? 'Участник' : 'Наблюдатель'}
+                            </Badge>
+                          </td>
+                          <td>
+                            {member.joinedAt ? new Date(member.joinedAt).toLocaleDateString('ru-RU') : 'Неизвестно'}
+                          </td>
+                          <td>
+                            {isOwner && member.role !== 'owner' && (
+                              <Button
+                                variant="outline-primary"
+                                size="sm"
+                                onClick={() => handleOpenRoleModal(member)}
+                              >
+                                Изменить роль
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
                 <Alert variant="info">
                   В проекте нет участников
@@ -572,7 +591,7 @@ const ProjectSettings = ({ project, onUpdate }) => {
                     </tr>
                     <tr>
                       <td><strong>Дата создания:</strong></td>
-                      <td>{new Date(project.createdAt).toLocaleDateString('ru-RU')}</td>
+                      <td>{project.createdAt ? new Date(project.createdAt).toLocaleDateString('ru-RU') : 'Неизвестно'}</td>
                     </tr>
                     <tr>
                       <td><strong>Статус:</strong></td>
@@ -687,7 +706,7 @@ const ProjectSettings = ({ project, onUpdate }) => {
         </Modal.Header>
         <Modal.Body>
           <p>
-            Изменение роли для <strong>{selectedMember?.user?.name}</strong>
+            Изменение роли для <strong>{selectedMember?.user?.name || 'Участника'}</strong>
           </p>
           <Form.Group className="mb-3">
             <Form.Label>Выберите роль</Form.Label>
