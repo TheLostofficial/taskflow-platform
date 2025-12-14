@@ -9,6 +9,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { updateTask, deleteTask } from '../../store/slices/tasksSlice';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
+import TaskComments from './TaskComments';
 
 const TaskDetailModal = ({ show, onHide, task, project }) => {
   const dispatch = useDispatch();
@@ -17,15 +18,10 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
   
   const [taskData, setTaskData] = useState(null);
   const [editMode, setEditMode] = useState(false);
-  const [comment, setComment] = useState('');
   const [activeTab, setActiveTab] = useState('details');
   const [error, setError] = useState(null);
   const [checklistItems, setChecklistItems] = useState([]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
-  const [editingCommentId, setEditingCommentId] = useState(null);
-  const [editingCommentText, setEditingCommentText] = useState('');
-  const [mentionSearch, setMentionSearch] = useState('');
-  const [showMentions, setShowMentions] = useState(false);
 
   useEffect(() => {
     if (task) {
@@ -42,8 +38,6 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
     setEditMode(false);
     setError(null);
     setActiveTab('details');
-    setEditingCommentId(null);
-    setEditingCommentText('');
   }, [task]);
 
   if (!show) return null;
@@ -108,71 +102,6 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
         onHide();
       } catch (error) {
         setError(error.message || 'Ошибка удаления задачи');
-      }
-    }
-  };
-
-  const handleAddComment = async () => {
-    if (!comment.trim()) return;
-    
-    try {
-      // Здесь будет вызов API для добавления комментария
-      const newComment = {
-        _id: Date.now().toString(),
-        author: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          avatar: user.avatar
-        },
-        content: comment.trim(),
-        createdAt: new Date().toISOString(),
-        mentions: []
-      };
-      
-      // Обновляем локальное состояние
-      setTaskData(prev => ({
-        ...prev,
-        comments: [...(prev.comments || []), newComment]
-      }));
-      
-      setComment('');
-    } catch (error) {
-      setError(error.message || 'Ошибка добавления комментария');
-    }
-  };
-
-  const handleUpdateComment = async (commentId) => {
-    if (!editingCommentText.trim()) return;
-    
-    try {
-      // Здесь будет вызов API для обновления комментария
-      setTaskData(prev => ({
-        ...prev,
-        comments: prev.comments.map(c => 
-          c._id === commentId 
-            ? { ...c, content: editingCommentText.trim(), isEdited: true, editedAt: new Date().toISOString() }
-            : c
-        )
-      }));
-      
-      setEditingCommentId(null);
-      setEditingCommentText('');
-    } catch (error) {
-      setError(error.message || 'Ошибка обновления комментария');
-    }
-  };
-
-  const handleDeleteComment = async (commentId) => {
-    if (window.confirm('Вы уверены, что хотите удалить этот комментарий?')) {
-      try {
-        // Здесь будет вызов API для удаления комментария
-        setTaskData(prev => ({
-          ...prev,
-          comments: prev.comments.filter(c => c._id !== commentId)
-        }));
-      } catch (error) {
-        setError(error.message || 'Ошибка удаления комментария');
       }
     }
   };
@@ -248,14 +177,6 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
     ? (completedChecklistItems / checklistItems.length) * 100 
     : 0;
 
-  const canEditComment = (comment) => {
-    return comment.author?._id === user?._id || isAdmin || isOwner;
-  };
-
-  const canDeleteComment = (comment) => {
-    return comment.author?._id === user?._id || isAdmin || isOwner;
-  };
-
   return (
     <Modal show={show} onHide={onHide} size="xl" backdrop="static">
       <Modal.Header closeButton className="border-bottom-0 pb-0">
@@ -312,156 +233,6 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
                       </Card.Body>
                     </Card>
                   )}
-                </div>
-
-                <div className="mb-4">
-                  <h6>Комментарии ({taskData.comments?.length || 0})</h6>
-                  <div className="mb-3">
-                    <Form.Control
-                      as="textarea"
-                      rows={3}
-                      value={comment}
-                      onChange={(e) => setComment(e.target.value)}
-                      placeholder="Добавьте комментарий..."
-                      className="mb-2"
-                    />
-                    <div className="d-flex justify-content-between align-items-center">
-                      <small className="text-muted">
-                        Нажмите Enter для отправки, Shift+Enter для новой строки
-                      </small>
-                      <Button 
-                        variant="outline-primary" 
-                        size="sm"
-                        onClick={handleAddComment}
-                        disabled={!comment.trim() || operationLoading}
-                      >
-                        {operationLoading ? (
-                          <>
-                            <Spinner size="sm" className="me-2" />
-                            Отправка...
-                          </>
-                        ) : 'Отправить'}
-                      </Button>
-                    </div>
-                  </div>
-                  
-                  <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                    {taskData.comments?.map((comment, index) => (
-                      <Card key={comment._id || index} className="mb-3">
-                        <Card.Body>
-                          <div className="d-flex justify-content-between align-items-start mb-2">
-                            <div className="d-flex align-items-center">
-                              {comment.author?.avatar ? (
-                                <img 
-                                  src={`/uploads/avatars/${comment.author.avatar}`}
-                                  alt={comment.author.name}
-                                  className="rounded-circle me-2"
-                                  style={{ width: '32px', height: '32px' }}
-                                />
-                              ) : (
-                                <div className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-2"
-                                  style={{ width: '32px', height: '32px' }}>
-                                  {comment.author?.name?.charAt(0)}
-                                </div>
-                              )}
-                              <div>
-                                <strong>{comment.author?.name || 'Неизвестный'}</strong>
-                                {comment.isEdited && (
-                                  <small className="text-muted ms-2">(изменено)</small>
-                                )}
-                              </div>
-                            </div>
-                            <div className="d-flex align-items-center">
-                              <small className="text-muted">
-                                {comment.createdAt ? 
-                                  format(new Date(comment.createdAt), 'dd MMM yyyy, HH:mm', { locale: ru }) : 
-                                  'Неизвестно'}
-                              </small>
-                              {(canEditComment(comment) || canDeleteComment(comment)) && (
-                                <Dropdown className="ms-2">
-                                  <Dropdown.Toggle variant="link" size="sm" className="text-muted p-0">
-                                    <i className="bi bi-three-dots-vertical"></i>
-                                  </Dropdown.Toggle>
-                                  <Dropdown.Menu>
-                                    {canEditComment(comment) && (
-                                      <Dropdown.Item 
-                                        onClick={() => {
-                                          setEditingCommentId(comment._id);
-                                          setEditingCommentText(comment.content);
-                                        }}
-                                      >
-                                        <i className="bi bi-pencil me-2"></i>
-                                        Редактировать
-                                      </Dropdown.Item>
-                                    )}
-                                    {canDeleteComment(comment) && (
-                                      <Dropdown.Item 
-                                        onClick={() => handleDeleteComment(comment._id)}
-                                        className="text-danger"
-                                      >
-                                        <i className="bi bi-trash me-2"></i>
-                                        Удалить
-                                      </Dropdown.Item>
-                                    )}
-                                  </Dropdown.Menu>
-                                </Dropdown>
-                              )}
-                            </div>
-                          </div>
-                          
-                          {editingCommentId === comment._id ? (
-                            <div className="mb-3">
-                              <Form.Control
-                                as="textarea"
-                                rows={3}
-                                value={editingCommentText}
-                                onChange={(e) => setEditingCommentText(e.target.value)}
-                                className="mb-2"
-                              />
-                              <div className="d-flex justify-content-end gap-2">
-                                <Button 
-                                  variant="secondary" 
-                                  size="sm"
-                                  onClick={() => {
-                                    setEditingCommentId(null);
-                                    setEditingCommentText('');
-                                  }}
-                                >
-                                  Отмена
-                                </Button>
-                                <Button 
-                                  variant="primary" 
-                                  size="sm"
-                                  onClick={() => handleUpdateComment(comment._id)}
-                                >
-                                  Сохранить
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="mb-0">{comment.content}</p>
-                          )}
-                          
-                          {comment.mentions && comment.mentions.length > 0 && (
-                            <div className="mt-2">
-                              <small className="text-muted">
-                                Упомянуты: {comment.mentions.map(m => m.name).join(', ')}
-                              </small>
-                            </div>
-                          )}
-                        </Card.Body>
-                      </Card>
-                    ))}
-                    
-                    {(!taskData.comments || taskData.comments.length === 0) && (
-                      <div className="text-center text-muted py-4">
-                        <div className="mb-2">
-                          <i className="bi bi-chat-dots fs-1"></i>
-                        </div>
-                        <small>Комментарии отсутствуют. Будьте первым!</small>
-                      </div>
-                    )}
-                  </div>
                 </div>
               </Col>
               
@@ -722,6 +493,13 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
                 </Card>
               </Col>
             </Row>
+          </Tab>
+          
+          <Tab eventKey="comments" title="Комментарии">
+            <TaskComments 
+              task={taskData}
+              project={project}
+            />
           </Tab>
           
           <Tab eventKey="activity" title="Активность">

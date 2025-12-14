@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { store } from './store/store';
+import { initializeWebSocket, disconnectWebSocket } from './services/websocket';
 import './styles/global.css';
 
 // Импорт страниц
@@ -40,6 +41,16 @@ const ErrorBoundary = ({ children }) => {
 };
 
 const AppContent = () => {
+  useEffect(() => {
+    // Инициализируем WebSocket при загрузке приложения
+    initializeWebSocket();
+    
+    // Очистка при размонтировании
+    return () => {
+      disconnectWebSocket();
+    };
+  }, []);
+
   return (
     <ErrorBoundary>
       <Router>

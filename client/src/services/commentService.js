@@ -31,50 +31,79 @@ api.interceptors.response.use(
 
 export const commentService = {
   async getTaskComments(taskId) {
-    const response = await api.get(`/tasks/${taskId}/comments`);
-    return response.data;
+    try {
+      const response = await api.get(`/tasks/${taskId}/comments`);
+      return response.data;
+    } catch (error) {
+      console.error('Get comments error:', error);
+      throw error;
+    }
   },
 
   async addComment(taskId, commentData) {
-    const formData = new FormData();
-    formData.append('content', commentData.content);
-    
-    if (commentData.mentions && commentData.mentions.length > 0) {
-      formData.append('mentions', JSON.stringify(commentData.mentions));
+    try {
+      let response;
+      
+      if (commentData instanceof FormData) {
+        // Если это FormData (с вложениями)
+        response = await api.post(`/tasks/${taskId}/comments`, commentData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+      } else {
+        // Если это обычный объект (без вложений)
+        response = await api.post(`/tasks/${taskId}/comments`, commentData);
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('Add comment error:', error);
+      throw error;
     }
-    
-    if (commentData.attachments && commentData.attachments.length > 0) {
-      commentData.attachments.forEach((file, index) => {
-        formData.append('attachments', file);
-      });
-    }
-    
-    const response = await api.post(`/tasks/${taskId}/comments`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
   },
 
   async updateComment(taskId, commentId, commentData) {
-    const response = await api.put(`/tasks/${taskId}/comments/${commentId}`, {
-      content: commentData.content,
-      mentions: JSON.stringify(commentData.mentions || [])
-    });
-    return response.data;
+    try {
+      const response = await api.put(`/tasks/${taskId}/comments/${commentId}`, commentData);
+      return response.data;
+    } catch (error) {
+      console.error('Update comment error:', error);
+      throw error;
+    }
   },
 
   async deleteComment(taskId, commentId) {
-    const response = await api.delete(`/tasks/${taskId}/comments/${commentId}`);
-    return response.data;
+    try {
+      const response = await api.delete(`/tasks/${taskId}/comments/${commentId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Delete comment error:', error);
+      throw error;
+    }
   },
 
-  async downloadAttachment(taskId, commentId, filename) {
-    const response = await api.get(`/tasks/${taskId}/comments/${commentId}/attachments/${filename}`, {
-      responseType: 'blob'
-    });
-    return response;
+  async downloadAttachment(taskId, commentId, filename, originalName) {
+    try {
+      const response = await api.get(`/tasks/${taskId}/comments/${commentId}/attachments/${filename}`, {
+        responseType: 'blob'
+      });
+      
+      // Создаем ссылку для скачивания
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', originalName || filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      return true;
+    } catch (error) {
+      console.error('Download attachment error:', error);
+      throw error;
+    }
   },
 
   formatFileSize(bytes) {

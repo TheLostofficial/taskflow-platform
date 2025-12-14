@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Form, Button, Alert, Spinner, Badge, Modal, Dropdown } from 'react-bootstrap';
 import { useSelector } from 'react-redux';
 import { commentService } from '../../services/commentService';
+import { websocketService } from '../../services/websocket';
 
-const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
+const TaskComments = ({ task, project }) => {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -39,6 +40,41 @@ const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
            ['owner', 'admin', 'member'].includes(member.role);
   });
 
+  // WebSocket подписки для real-time обновлений
+  useEffect(() => {
+    if (!task._id || !websocketService) return;
+
+    const handleCommentAdded = (newComment) => {
+      if (newComment.taskId === task._id) {
+        setComments(prev => [newComment, ...prev]);
+      }
+    };
+
+    const handleCommentUpdated = (updatedComment) => {
+      if (updatedComment.taskId === task._id) {
+        setComments(prev => prev.map(c => 
+          c._id === updatedComment._id ? updatedComment : c
+        ));
+      }
+    };
+
+    const handleCommentDeleted = ({ taskId, commentId }) => {
+      if (taskId === task._id) {
+        setComments(prev => prev.filter(c => c._id !== commentId));
+      }
+    };
+
+    websocketService.on('commentAdded', handleCommentAdded);
+    websocketService.on('commentUpdated', handleCommentUpdated);
+    websocketService.on('commentDeleted', handleCommentDeleted);
+
+    return () => {
+      websocketService.off('commentAdded', handleCommentAdded);
+      websocketService.off('commentUpdated', handleCommentUpdated);
+      websocketService.off('commentDeleted', handleCommentDeleted);
+    };
+  }, [task._id]);
+
   // Загрузка комментариев
   useEffect(() => {
     if (task._id && canComment) {
@@ -52,7 +88,11 @@ const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
     try {
       setLoading(true);
       const data = await commentService.getTaskComments(task._id);
-      setComments(data.comments || []);
+      // Сортируем по дате создания (новые сверху)
+      const sortedComments = (data.comments || []).sort((a, b) => 
+        new Date(b.createdAt) - new Date(a.createdAt)
+      );
+      setComments(sortedComments);
     } catch (error) {
       console.error('Error fetching comments:', error);
       setError('Ошибка загрузки комментариев');
@@ -77,23 +117,21 @@ const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
     setError('');
 
     try {
-      // Подготовка данных комментария
       const commentData = {
         content: newComment.trim(),
-        author: user._id
+        mentions: []
       };
 
-      // Если есть вложения, обрабатываем их
+      // Если есть вложения, используем FormData
       if (attachments.length > 0) {
         const formData = new FormData();
         formData.append('content', newComment.trim());
-        formData.append('author', user._id);
         
         attachments.forEach((file, index) => {
-          formData.append(`attachments`, file);
+          formData.append('attachments', file);
         });
 
-        await commentService.addCommentWithAttachments(task._id, formData);
+        await commentService.addComment(task._id, formData);
       } else {
         await commentService.addComment(task._id, commentData);
       }
@@ -108,15 +146,9 @@ const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
       setSuccess('Комментарий добавлен');
       setTimeout(() => setSuccess(''), 3000);
       
-      // Обновление списка комментариев
-      await fetchComments();
-      
-      if (onCommentAdded) {
-        onCommentAdded();
-      }
     } catch (error) {
       console.error('Error adding comment:', error);
-      setError(error.message || 'Ошибка добавления комментария');
+      setError(error.response?.data?.message || 'Ошибка добавления комментария');
     } finally {
       setSending(false);
     }
@@ -135,7 +167,6 @@ const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
       setSuccess('Комментарий обновлен');
       setTimeout(() => setSuccess(''), 3000);
       
-      await fetchComments();
     } catch (error) {
       console.error('Error updating comment:', error);
       setError(error.message || 'Ошибка обновления комментария');
@@ -153,11 +184,6 @@ const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
       setSuccess('Комментарий удален');
       setTimeout(() => setSuccess(''), 3000);
       
-      await fetchComments();
-      
-      if (onCommentDeleted) {
-        onCommentDeleted();
-      }
     } catch (error) {
       console.error('Error deleting comment:', error);
       setError(error.message || 'Ошибка удаления комментария');
@@ -189,16 +215,7 @@ const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
 
   const downloadAttachment = async (commentId, filename, originalName) => {
     try {
-      const response = await commentService.downloadAttachment(task._id, commentId, filename);
-      
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', originalName || filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      await commentService.downloadAttachment(task._id, commentId, filename, originalName);
     } catch (error) {
       console.error('Error downloading attachment:', error);
       setError('Ошибка скачивания файла');
@@ -398,13 +415,22 @@ const TaskComments = ({ task, project, onCommentAdded, onCommentDeleted }) => {
               <Card.Body>
                 <div className="d-flex justify-content-between align-items-start mb-2">
                   <div className="d-flex align-items-center">
-                    <div 
-                      className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2"
-                      style={{ width: '32px', height: '32px', fontSize: '14px' }}
-                      title={comment.author?.name || 'Неизвестный'}
-                    >
-                      {comment.author?.name?.charAt(0)?.toUpperCase() || 'U'}
-                    </div>
+                    {comment.author?.avatar ? (
+                      <img 
+                        src={`/uploads/avatars/${comment.author.avatar}`}
+                        alt={comment.author.name}
+                        className="rounded-circle me-2"
+                        style={{ width: '32px', height: '32px' }}
+                      />
+                    ) : (
+                      <div 
+                        className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2"
+                        style={{ width: '32px', height: '32px', fontSize: '14px' }}
+                        title={comment.author?.name || 'Неизвестный'}
+                      >
+                        {comment.author?.name?.charAt(0)?.toUpperCase() || 'U'}
+                      </div>
+                    )}
                     <div>
                       <div className="fw-medium">{comment.author?.name || 'Неизвестный'}</div>
                       <small className="text-muted">
