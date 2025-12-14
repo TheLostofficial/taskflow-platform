@@ -20,15 +20,6 @@ const TaskComments = ({ task, project }) => {
   const { user } = useSelector(state => state.auth || {});
   const fileInputRef = useRef(null);
 
-  // Проверка существования задачи
-  if (!task?._id) {
-    return (
-      <Alert variant="warning">
-        Задача не загружена. Невозможно отобразить комментарии.
-      </Alert>
-    );
-  }
-
   // Определение прав пользователя
   const isTaskCreator = task?.creator?._id === user?._id;
   const isProjectOwner = project?.owner?._id === user?._id;
@@ -42,25 +33,28 @@ const TaskComments = ({ task, project }) => {
 
   // WebSocket подписки для real-time обновлений
   useEffect(() => {
-    if (!task._id || !websocketService) return;
+    if (!task?._id || !websocketService) return;
 
-    const handleCommentAdded = (newComment) => {
-      if (newComment.taskId === task._id) {
-        setComments(prev => [newComment, ...prev]);
+    const handleCommentAdded = (data) => {
+      console.log('📡 [WS] Получен commentAdded:', data);
+      if (data.taskId === task._id) {
+        setComments(prev => [data.comment, ...prev]);
       }
     };
 
-    const handleCommentUpdated = (updatedComment) => {
-      if (updatedComment.taskId === task._id) {
+    const handleCommentUpdated = (data) => {
+      console.log('📡 [WS] Получен commentUpdated:', data);
+      if (data.taskId === task._id) {
         setComments(prev => prev.map(c => 
-          c._id === updatedComment._id ? updatedComment : c
+          c._id === data.comment._id ? data.comment : c
         ));
       }
     };
 
-    const handleCommentDeleted = ({ taskId, commentId }) => {
-      if (taskId === task._id) {
-        setComments(prev => prev.filter(c => c._id !== commentId));
+    const handleCommentDeleted = (data) => {
+      console.log('📡 [WS] Получен commentDeleted:', data);
+      if (data.taskId === task._id) {
+        setComments(prev => prev.filter(c => c._id !== data.commentId));
       }
     };
 
@@ -73,43 +67,46 @@ const TaskComments = ({ task, project }) => {
       websocketService.off('commentUpdated', handleCommentUpdated);
       websocketService.off('commentDeleted', handleCommentDeleted);
     };
-  }, [task._id]);
-
-  // Загрузка комментариев
-  useEffect(() => {
-    if (task._id && canComment) {
-      fetchComments();
-    }
-  }, [task._id, canComment]);
+  }, [task?._id]);
 
   const fetchComments = useCallback(async () => {
-    if (!task._id) return;
+    if (!task?._id) return;
     
     try {
       setLoading(true);
+      console.log('📡 [COMMENTS] Загрузка комментариев для задачи:', task._id);
       const data = await commentService.getTaskComments(task._id);
+      console.log('✅ [COMMENTS] Комментарии загружены:', data.comments?.length || 0);
+      
       // Сортируем по дате создания (новые сверху)
       const sortedComments = (data.comments || []).sort((a, b) => 
         new Date(b.createdAt) - new Date(a.createdAt)
       );
       setComments(sortedComments);
     } catch (error) {
-      console.error('Error fetching comments:', error);
-      setError('Ошибка загрузки комментариев');
+      console.error('❌ [COMMENTS] Ошибка загрузки комментариев:', error);
+      setError('Ошибка загрузки комментариев: ' + (error.response?.data?.message || error.message));
     } finally {
       setLoading(false);
     }
-  }, [task._id]);
+  }, [task?._id]);
+
+  // Загрузка комментариев
+  useEffect(() => {
+    if (task?._id && canComment) {
+      fetchComments();
+    }
+  }, [task?._id, canComment, fetchComments]);
 
   const handleAddComment = async (e) => {
     e.preventDefault();
-    if (!task._id || !user?._id) {
+    if (!task?._id || !user?._id) {
       setError('Задача или пользователь не определены');
       return;
     }
     
-    if (!newComment.trim() && attachments.length === 0) {
-      setError('Введите текст комментария или прикрепите файл');
+    if (!newComment.trim()) {
+      setError('Введите текст комментария');
       return;
     }
 
@@ -117,24 +114,17 @@ const TaskComments = ({ task, project }) => {
     setError('');
 
     try {
+      console.log('📤 [COMMENTS] Отправка комментария:', newComment);
+      
       const commentData = {
         content: newComment.trim(),
         mentions: []
       };
 
-      // Если есть вложения, используем FormData
-      if (attachments.length > 0) {
-        const formData = new FormData();
-        formData.append('content', newComment.trim());
-        
-        attachments.forEach((file, index) => {
-          formData.append('attachments', file);
-        });
-
-        await commentService.addComment(task._id, formData);
-      } else {
-        await commentService.addComment(task._id, commentData);
-      }
+      // Используем обычный JSON для комментариев
+      const result = await commentService.addComment(task._id, commentData);
+      
+      console.log('✅ [COMMENTS] Комментарий добавлен:', result.comment);
 
       // Сброс формы
       setNewComment('');
@@ -146,8 +136,11 @@ const TaskComments = ({ task, project }) => {
       setSuccess('Комментарий добавлен');
       setTimeout(() => setSuccess(''), 3000);
       
+      // Обновляем список комментариев
+      fetchComments();
+      
     } catch (error) {
-      console.error('Error adding comment:', error);
+      console.error('❌ [COMMENTS] Ошибка добавления комментария:', error);
       setError(error.response?.data?.message || 'Ошибка добавления комментария');
     } finally {
       setSending(false);
@@ -167,14 +160,17 @@ const TaskComments = ({ task, project }) => {
       setSuccess('Комментарий обновлен');
       setTimeout(() => setSuccess(''), 3000);
       
+      // Обновляем список комментариев
+      fetchComments();
+      
     } catch (error) {
-      console.error('Error updating comment:', error);
+      console.error('❌ [COMMENTS] Ошибка обновления комментария:', error);
       setError(error.message || 'Ошибка обновления комментария');
     }
   };
 
   const handleDeleteComment = async () => {
-    if (!commentToDelete || !task._id) return;
+    if (!commentToDelete || !task?._id) return;
 
     try {
       await commentService.deleteComment(task._id, commentToDelete);
@@ -184,8 +180,11 @@ const TaskComments = ({ task, project }) => {
       setSuccess('Комментарий удален');
       setTimeout(() => setSuccess(''), 3000);
       
+      // Обновляем список комментариев
+      fetchComments();
+      
     } catch (error) {
-      console.error('Error deleting comment:', error);
+      console.error('❌ [COMMENTS] Ошибка удаления комментария:', error);
       setError(error.message || 'Ошибка удаления комментария');
     }
   };
@@ -211,15 +210,6 @@ const TaskComments = ({ task, project }) => {
 
   const removeAttachment = (index) => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const downloadAttachment = async (commentId, filename, originalName) => {
-    try {
-      await commentService.downloadAttachment(task._id, commentId, filename, originalName);
-    } catch (error) {
-      console.error('Error downloading attachment:', error);
-      setError('Ошибка скачивания файла');
-    }
   };
 
   const canEditComment = (commentAuthorId) => {
@@ -284,6 +274,15 @@ const TaskComments = ({ task, project }) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  // Проверка существования задачи
+  if (!task?._id) {
+    return (
+      <Alert variant="warning">
+        Задача не загружена. Невозможно отобразить комментарии.
+      </Alert>
+    );
+  }
+
   // Если пользователь не может комментировать
   if (!canComment) {
     return (
@@ -325,10 +324,10 @@ const TaskComments = ({ task, project }) => {
               />
             </Form.Group>
 
-            {/* Вложения */}
+            {/* Вложения (временно отключены) */}
             {attachments.length > 0 && (
               <div className="mb-3">
-                <small className="text-muted d-block mb-2">Прикрепленные файлы:</small>
+                <small className="text-muted d-block mb-2">Прикрепленные файлы (функция временно отключена):</small>
                 {attachments.map((file, index) => (
                   <div key={index} className="d-flex align-items-center mb-2 border rounded p-2">
                     <Badge bg="light" text="dark" className="me-2">
@@ -351,6 +350,7 @@ const TaskComments = ({ task, project }) => {
 
             <div className="d-flex justify-content-between align-items-center">
               <div>
+                {/* Временно скрываем кнопку прикрепления файлов
                 <Button
                   variant="outline-secondary"
                   size="sm"
@@ -372,12 +372,13 @@ const TaskComments = ({ task, project }) => {
                 <small className="text-muted ms-2">
                   Макс. 10MB, до 5 файлов
                 </small>
+                */}
               </div>
 
               <Button
                 variant="primary"
                 type="submit"
-                disabled={sending || (!newComment.trim() && attachments.length === 0)}
+                disabled={sending || !newComment.trim()}
               >
                 {sending ? (
                   <>
@@ -415,10 +416,10 @@ const TaskComments = ({ task, project }) => {
               <Card.Body>
                 <div className="d-flex justify-content-between align-items-start mb-2">
                   <div className="d-flex align-items-center">
-                    {comment.author?.avatar ? (
+                    {comment.user?.avatar ? (
                       <img 
-                        src={`/uploads/avatars/${comment.author.avatar}`}
-                        alt={comment.author.name}
+                        src={`/uploads/avatars/${comment.user.avatar}`}
+                        alt={comment.user.name}
                         className="rounded-circle me-2"
                         style={{ width: '32px', height: '32px' }}
                       />
@@ -426,16 +427,16 @@ const TaskComments = ({ task, project }) => {
                       <div 
                         className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2"
                         style={{ width: '32px', height: '32px', fontSize: '14px' }}
-                        title={comment.author?.name || 'Неизвестный'}
+                        title={comment.user?.name || 'Неизвестный'}
                       >
-                        {comment.author?.name?.charAt(0)?.toUpperCase() || 'U'}
+                        {comment.user?.name?.charAt(0)?.toUpperCase() || 'U'}
                       </div>
                     )}
                     <div>
-                      <div className="fw-medium">{comment.author?.name || 'Неизвестный'}</div>
+                      <div className="fw-medium">{comment.user?.name || 'Неизвестный'}</div>
                       <small className="text-muted">
                         {formatDate(comment.createdAt)}
-                        {comment.isEdited && (
+                        {comment.edited && (
                           <span className="ms-2" title={`Отредактировано: ${new Date(comment.editedAt).toLocaleString('ru-RU')}`}>
                             (ред.)
                           </span>
@@ -445,13 +446,13 @@ const TaskComments = ({ task, project }) => {
                   </div>
 
                   {/* Меню действий для комментария */}
-                  {(canEditComment(comment.author?._id) || canDeleteComment(comment.author?._id)) && (
+                  {(canEditComment(comment.user?._id) || canDeleteComment(comment.user?._id)) && (
                     <Dropdown>
                       <Dropdown.Toggle variant="link" size="sm" className="text-muted border-0 p-1">
                         ⋮
                       </Dropdown.Toggle>
                       <Dropdown.Menu>
-                        {canEditComment(comment.author?._id) && (
+                        {canEditComment(comment.user?._id) && (
                           <Dropdown.Item onClick={() => {
                             setEditingComment(comment._id);
                             setEditContent(comment.content);
@@ -459,7 +460,7 @@ const TaskComments = ({ task, project }) => {
                             Редактировать
                           </Dropdown.Item>
                         )}
-                        {canDeleteComment(comment.author?._id) && (
+                        {canDeleteComment(comment.user?._id) && (
                           <Dropdown.Item 
                             className="text-danger"
                             onClick={() => {
@@ -519,7 +520,6 @@ const TaskComments = ({ task, project }) => {
                               key={index}
                               className="border rounded p-2 d-flex align-items-center hover-shadow"
                               style={{ cursor: 'pointer', minWidth: '200px' }}
-                              onClick={() => downloadAttachment(comment._id, attachment.filename, attachment.originalName)}
                               title={`Скачать: ${attachment.originalName} (${formatFileSize(attachment.size)})`}
                             >
                               <span className="me-2">{getFileIcon(attachment.originalName)}</span>

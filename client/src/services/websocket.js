@@ -1,211 +1,319 @@
-import io from 'socket.io-client';
-import { API_URL } from '../utils/constants';
+import { io } from 'socket.io-client';
+import { WS_URL } from '../utils/constants';
 
 class WebSocketService {
   constructor() {
     this.socket = null;
-    this.listeners = new Map();
+    this.connected = false;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.reconnectDelay = 1000;
+    this.listeners = new Map();
+    this.userId = null;
   }
 
-  connect() {
-    const token = localStorage.getItem('token');
-    
-    if (!token) {
-      console.log('No token found, WebSocket connection skipped');
+  // Подключение к WebSocket серверу
+  connect(userId) {
+    if (this.socket && this.connected) {
+      console.log('WebSocket уже подключен');
       return;
     }
 
-    if (this.socket?.connected) {
-      console.log('WebSocket already connected');
+    this.userId = userId;
+    const token = localStorage.getItem('token');
+    
+    if (!token) {
+      console.error('❌ Нет токена для подключения WebSocket');
       return;
     }
 
     try {
-      this.socket = io(API_URL, {
-        auth: { token },
+      // Подключаемся к WebSocket серверу с использованием socket.io
+      this.socket = io(WS_URL, {
+        query: { token },
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: this.maxReconnectAttempts,
-        reconnectionDelay: this.reconnectDelay,
+        reconnectionDelay: this.reconnectDelay
+      });
+      
+      this.socket.on('connect', () => {
+        console.log('✅ WebSocket подключен, ID:', this.socket.id);
+        this.connected = true;
+        this.reconnectAttempts = 0;
+        
+        // Аутентифицируем пользователя
+        this.authenticate(userId);
+        
+        // Показываем статус подключения
+        this.showNotification({
+          title: 'WebSocket',
+          message: 'Подключение установлено',
+          type: 'success'
+        });
       });
 
-      this.setupEventListeners();
-      console.log('WebSocket connecting...');
+      this.socket.on('connect_error', (error) => {
+        console.error('❌ Ошибка подключения WebSocket:', error.message);
+        this.connected = false;
+      });
+
+      this.socket.on('disconnect', (reason) => {
+        console.log('❌ WebSocket отключен, причина:', reason);
+        this.connected = false;
+        
+        if (reason === 'io server disconnect') {
+          // Сервер принудительно отключил, нужно переподключиться вручную
+          setTimeout(() => {
+            if (this.userId) {
+              this.connect(this.userId);
+            }
+          }, 1000);
+        }
+      });
+
+      // Обработка входящих сообщений
+      this.socket.onAny((event, data) => {
+        this.handleMessage(event, data);
+      });
+
     } catch (error) {
-      console.error('WebSocket connection error:', error);
+      console.error('Ошибка подключения WebSocket:', error);
+      this.handleReconnect();
     }
   }
 
+  // Аутентификация пользователя
+  authenticate(userId) {
+    if (this.socket && this.connected && userId) {
+      this.socket.emit('authenticate', userId);
+    }
+  }
+
+  // Присоединение к проекту
+  joinProject(projectId) {
+    if (this.socket && this.connected && projectId) {
+      this.socket.emit('join_project', projectId);
+    }
+  }
+
+  // Выход из проекта
+  leaveProject(projectId) {
+    if (this.socket && this.connected && projectId) {
+      this.socket.emit('leave_project', projectId);
+    }
+  }
+
+  // Присоединение к задаче
+  joinTask(taskId) {
+    if (this.socket && this.connected && taskId) {
+      this.socket.emit('join_task', taskId);
+    }
+  }
+
+  // Выход из задачи
+  leaveTask(taskId) {
+    if (this.socket && this.connected && taskId) {
+      this.socket.emit('leave_task', taskId);
+    }
+  }
+
+  // Обработка входящих сообщений
+  handleMessage(event, data) {
+    // Вызываем обработчики для этого типа события
+    const handlers = this.listeners.get(event) || [];
+    handlers.forEach(handler => {
+      try {
+        handler(data);
+      } catch (error) {
+        console.error(`Ошибка в обработчике события ${event}:`, error);
+      }
+    });
+
+    // Обрабатываем системные события
+    switch (event) {
+      case 'notification':
+        this.handleNotification(data);
+        break;
+      case 'user_mentioned':
+        this.handleUserMention(data);
+        break;
+      case 'pong':
+        // Ответ на пинг
+        break;
+    }
+  }
+
+  // Обработка уведомлений
+  handleNotification(notification) {
+    console.log('📢 Уведомление:', notification);
+    
+    // Показываем уведомление в UI
+    this.showNotification(notification);
+  }
+
+  // Обработка упоминаний
+  handleUserMention(mention) {
+    console.log('👤 Вас упомянули:', mention);
+    
+    // Показываем уведомление об упоминании
+    this.showNotification({
+      title: 'Вас упомянули',
+      message: `Вы упомянуты в комментарии к задаче "${mention.taskTitle}"`,
+      type: 'info',
+      data: mention
+    });
+  }
+
+  // Отправка события
+  emit(event, data) {
+    if (this.socket && this.connected) {
+      this.socket.emit(event, data);
+    }
+  }
+
+  // Подписка на события
+  on(event, handler) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
+    this.listeners.get(event).push(handler);
+  }
+
+  // Отписка от событий
+  off(event, handler) {
+    if (this.listeners.has(event)) {
+      const handlers = this.listeners.get(event);
+      const index = handlers.indexOf(handler);
+      if (index !== -1) {
+        handlers.splice(index, 1);
+      }
+    }
+  }
+
+  // Показать уведомление
+  showNotification(notification) {
+    // Проверяем поддержку Notification API
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(notification.title, {
+        body: notification.message,
+        icon: '/favicon.ico'
+      });
+    } else if ('Notification' in window && Notification.permission !== 'denied') {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          new Notification(notification.title, {
+            body: notification.message,
+            icon: '/favicon.ico'
+          });
+        }
+      });
+    }
+    
+    // Также отправляем событие для UI
+    const uiEvent = new CustomEvent('websocket-notification', {
+      detail: notification
+    });
+    window.dispatchEvent(uiEvent);
+  }
+
+  // Обработка переподключения
+  handleReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Превышено максимальное количество попыток переподключения');
+      return;
+    }
+
+    this.reconnectAttempts++;
+    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    
+    console.log(`Попытка переподключения ${this.reconnectAttempts} через ${delay}ms`);
+    
+    setTimeout(() => {
+      if (this.userId) {
+        this.connect(this.userId);
+      }
+    }, delay);
+  }
+
+  // Отключение
   disconnect() {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
-      this.reconnectAttempts = 0;
-      console.log('WebSocket disconnected');
+      this.connected = false;
+      this.listeners.clear();
+      console.log('WebSocket отключен');
     }
   }
 
-  setupEventListeners() {
-    if (!this.socket) return;
-
-    this.socket.on('connect', () => {
-      console.log('✅ WebSocket connected successfully');
-      this.reconnectAttempts = 0;
-    });
-
-    this.socket.on('disconnect', (reason) => {
-      console.log('⚠️ WebSocket disconnected:', reason);
-      if (reason === 'io server disconnect') {
-        // Сервер отключил сокет, нужно переподключиться
-        this.socket.connect();
-      }
-    });
-
-    this.socket.on('connect_error', (error) => {
-      console.error('❌ WebSocket connection error:', error);
-      this.reconnectAttempts++;
-      
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.error('Max reconnection attempts reached');
-      }
-    });
-
-    // Пользовательские события
-    this.socket.on('taskCreated', (data) => {
-      this.emitToListeners('taskCreated', data);
-      console.log('📝 Task created via WebSocket:', data);
-    });
-
-    this.socket.on('taskUpdated', (data) => {
-      this.emitToListeners('taskUpdated', data);
-      console.log('📝 Task updated via WebSocket:', data);
-    });
-
-    this.socket.on('taskDeleted', (data) => {
-      this.emitToListeners('taskDeleted', data);
-      console.log('🗑️ Task deleted via WebSocket:', data);
-    });
-
-    this.socket.on('commentAdded', (data) => {
-      this.emitToListeners('commentAdded', data);
-      console.log('💬 Comment added via WebSocket:', data);
-    });
-
-    this.socket.on('commentUpdated', (data) => {
-      this.emitToListeners('commentUpdated', data);
-      console.log('💬 Comment updated via WebSocket:', data);
-    });
-
-    this.socket.on('commentDeleted', (data) => {
-      this.emitToListeners('commentDeleted', data);
-      console.log('🗑️ Comment deleted via WebSocket:', data);
-    });
-
-    this.socket.on('userMentioned', (data) => {
-      this.emitToListeners('userMentioned', data);
-      console.log('👤 User mentioned via WebSocket:', data);
-    });
-
-    // Проектные события
-    this.socket.on('projectUpdated', (data) => {
-      this.emitToListeners('projectUpdated', data);
-      console.log('📁 Project updated via WebSocket:', data);
-    });
-
-    this.socket.on('memberAdded', (data) => {
-      this.emitToListeners('memberAdded', data);
-      console.log('👥 Member added via WebSocket:', data);
-    });
-
-    this.socket.on('memberRemoved', (data) => {
-      this.emitToListeners('memberRemoved', data);
-      console.log('👋 Member removed via WebSocket:', data);
-    });
-  }
-
-  emitToListeners(event, data) {
-    const listeners = this.listeners.get(event) || [];
-    listeners.forEach(listener => listener(data));
-  }
-
-  on(event, callback) {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, []);
-    }
-    this.listeners.get(event).push(callback);
-    
-    // Если сокет уже подключен, подписываемся на событие
-    if (this.socket) {
-      this.socket.on(event, callback);
-    }
-  }
-
-  off(event, callback) {
-    if (!this.listeners.has(event)) return;
-    
-    const listeners = this.listeners.get(event);
-    const index = listeners.indexOf(callback);
-    if (index !== -1) {
-      listeners.splice(index, 1);
-    }
-    
-    // Отписываемся от события сокета
-    if (this.socket) {
-      this.socket.off(event, callback);
-    }
-  }
-
-  emit(event, data) {
-    if (this.socket?.connected) {
-      this.socket.emit(event, data);
-      return true;
-    }
-    console.warn(`⚠️ Cannot emit ${event}: WebSocket not connected`);
-    return false;
-  }
-
+  // Проверка статуса подключения
   isConnected() {
-    return this.socket?.connected || false;
+    return this.connected && this.socket?.connected;
   }
 
-  getSocketId() {
-    return this.socket?.id || null;
+  // Получить статус подключения
+  getStatus() {
+    if (!this.socket) return 'disconnected';
+    return this.socket.connected ? 'connected' : 'disconnected';
+  }
+
+  // Отправить событие об обновлении задачи
+  sendTaskUpdated(taskId, projectId, task, userId) {
+    this.emit('task_updated', {
+      projectId,
+      taskId,
+      task,
+      updatedBy: userId
+    });
+  }
+
+  // Отправить событие о создании задачи
+  sendTaskCreated(projectId, task, userId) {
+    this.emit('task_created', {
+      projectId,
+      task,
+      createdBy: userId
+    });
+  }
+
+  // Отправить событие об удалении задачи
+  sendTaskDeleted(projectId, taskId, userId) {
+    this.emit('task_deleted', {
+      projectId,
+      taskId,
+      deletedBy: userId
+    });
+  }
+
+  // Отправить событие о добавлении комментария
+  sendCommentAdded(taskId, projectId, comment, userId) {
+    this.emit('comment_added', {
+      projectId,
+      taskId,
+      comment,
+      addedBy: userId
+    });
+  }
+
+  // Пинг для поддержания соединения
+  ping() {
+    if (this.socket && this.connected) {
+      this.socket.emit('ping');
+    }
   }
 }
 
-export const websocketService = new WebSocketService();
+// Создаем единственный экземпляр сервиса
+const websocketService = new WebSocketService();
 
-// Инициализация WebSocket
-export const initializeWebSocket = () => {
-  websocketService.connect();
-  
-  // Автоматическое переподключение при изменении токена
-  const originalSetItem = localStorage.setItem;
-  localStorage.setItem = function(key, value) {
-    if (key === 'token' && value) {
-      originalSetItem.apply(this, arguments);
-      setTimeout(() => {
-        websocketService.disconnect();
-        websocketService.connect();
-      }, 100);
-    } else {
-      originalSetItem.apply(this, arguments);
-    }
-  };
+// Экспортируем функции для совместимости
+export const initializeWebSocket = (userId) => {
+  websocketService.connect(userId);
 };
 
-// Отключение WebSocket
 export const disconnectWebSocket = () => {
   websocketService.disconnect();
 };
 
-// Утилита для получения состояния подключения
-export const getWebSocketStatus = () => {
-  return {
-    connected: websocketService.isConnected(),
-    socketId: websocketService.getSocketId()
-  };
-};
+export { websocketService };

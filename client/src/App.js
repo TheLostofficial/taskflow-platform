@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { store } from './store/store';
-import { initializeWebSocket, disconnectWebSocket } from './services/websocket';
+import { websocketService } from './services/websocket';
 import './styles/global.css';
 
 // Импорт страниц
@@ -43,11 +43,32 @@ const ErrorBoundary = ({ children }) => {
 const AppContent = () => {
   useEffect(() => {
     // Инициализируем WebSocket при загрузке приложения
-    initializeWebSocket();
+    const initWebSocket = () => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          // Декодируем токен для получения userId
+          const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+          const userId = tokenPayload.userId || tokenPayload._id;
+          
+          if (userId) {
+            console.log('🔄 Инициализация WebSocket для пользователя:', userId);
+            websocketService.connect(userId);
+          } else {
+            console.warn('Не удалось получить userId из токена');
+          }
+        } catch (error) {
+          console.error('Ошибка декодирования токена:', error);
+        }
+      }
+    };
+
+    initWebSocket();
     
     // Очистка при размонтировании
     return () => {
-      disconnectWebSocket();
+      console.log('🔄 Отключение WebSocket');
+      websocketService.disconnect();
     };
   }, []);
 

@@ -4,21 +4,39 @@ import { LinkContainer } from 'react-router-bootstrap';
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchProjects } from '../store/slices/projectsSlice';
 import CreateProjectModal from '../components/projects/CreateProjectModal';
+import DebugPanel from '../components/debug/DebugPanel';
 
 const ProjectsPage = () => {
   const dispatch = useDispatch();
-  const { projects = [], loading = false, error = null } = useSelector((state) => state.projects || {});
+  const { 
+    projects = [], 
+    loading = false, 
+    error = null,
+    networkError = false 
+  } = useSelector((state) => state.projects || {});
+  
   const { user } = useSelector((state) => state.auth || {});
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   useEffect(() => {
+    console.log('🔄 ProjectsPage: запуск useEffect, загрузка проектов');
     dispatch(fetchProjects());
   }, [dispatch]);
 
-  // Защита от undefined
   const projectsArray = Array.isArray(projects) ? projects : [];
   const isLoading = loading || false;
   const errorMessage = error || null;
+
+  useEffect(() => {
+    console.log('📊 ProjectsPage состояние:', {
+      projectsCount: projectsArray.length,
+      loading: isLoading,
+      error: errorMessage,
+      networkError,
+      user: user?.email
+    });
+  }, [projectsArray, isLoading, errorMessage, networkError, user]);
 
   if (isLoading) {
     return (
@@ -40,20 +58,39 @@ const ProjectsPage = () => {
           <h1>Мои проекты</h1>
           <p className="text-muted mb-0">
             Всего проектов: {projectsArray.length}
+            {user && ` • Пользователь: ${user.email}`}
           </p>
         </div>
-        <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-          + Новый проект
-        </Button>
+        <div>
+          <Button 
+            variant="outline-secondary" 
+            size="sm" 
+            onClick={() => setShowDebug(!showDebug)}
+            className="me-2"
+          >
+            {showDebug ? 'Скрыть отладку' : 'Показать отладку'}
+          </Button>
+          <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+            + Новый проект
+          </Button>
+        </div>
       </div>
+
+      {showDebug && <DebugPanel />}
 
       {errorMessage && (
         <Alert variant="danger" className="mb-4">
-          {errorMessage}
+          <strong>Ошибка:</strong> {errorMessage}
         </Alert>
       )}
 
-      {projectsArray.length === 0 ? (
+      {networkError && (
+        <Alert variant="warning" className="mb-4">
+          <strong>Сетевая ошибка:</strong> Проверьте подключение к интернету
+        </Alert>
+      )}
+
+      {projectsArray.length === 0 && !isLoading && !errorMessage ? (
         <Row className="justify-content-center">
           <Col md={8} className="text-center">
             <Card className="border-dashed">

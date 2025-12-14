@@ -37,7 +37,8 @@ router.get('/', authenticateToken, async (req, res) => {
     // Добавляем количество задач для каждого проекта
     const projectsWithTaskCount = await Promise.all(
       projects.map(async (project) => {
-        const taskCount = await Task.countDocuments({ project: project._id });
+        const tasks = await Task.find({ project: project._id });
+        const taskCount = tasks.length;
         const projectObj = project.toObject();
         return {
           ...projectObj,
@@ -129,9 +130,21 @@ router.get('/:id', authenticateToken, validateObjectId, async (req, res) => {
     }
 
     // Получаем количество задач
-    const taskCount = await Task.countDocuments({ project: project._id });
+    const tasks = await Task.find({ project: project._id });
+    const taskCount = tasks.length;
     const projectObj = project.toObject();
     projectObj.taskCount = taskCount;
+
+    // Получаем количество задач по статусам
+    const tasksByStatus = {};
+    tasks.forEach(task => {
+      if (!tasksByStatus[task.status]) {
+        tasksByStatus[task.status] = 0;
+      }
+      tasksByStatus[task.status] += 1;
+    });
+
+    projectObj.taskStats = tasksByStatus;
 
     res.json({
       message: 'Project retrieved successfully',
@@ -140,6 +153,37 @@ router.get('/:id', authenticateToken, validateObjectId, async (req, res) => {
   } catch (error) {
     console.error('Get project error:', error);
     res.status(500).json({ message: 'Server error while fetching project' });
+  }
+});
+
+// ✅ ДОБАВЛЕН МАРШРУТ: Получить задачи проекта
+router.get('/:id/tasks', authenticateToken, validateObjectId, async (req, res) => {
+  try {
+    const project = await Project.findOne({
+      _id: req.params.id,
+      $or: [
+        { owner: req.user._id },
+        { 'members.user': req.user._id }
+      ]
+    });
+
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    const tasks = await Task.find({ project: project._id })
+      .populate('creator', 'name email avatar')
+      .populate('assignee', 'name email avatar')
+      .populate('comments.user', 'name email avatar')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      message: 'Project tasks retrieved successfully',
+      tasks
+    });
+  } catch (error) {
+    console.error('Get project tasks error:', error);
+    res.status(500).json({ message: 'Server error while fetching project tasks' });
   }
 });
 
@@ -280,6 +324,84 @@ router.patch('/:id/members/:userId/role', authenticateToken, validateObjectId, a
   } catch (error) {
     console.error('Update member role error:', error);
     res.status(500).json({ message: 'Server error while updating member role' });
+  }
+});
+
+// Получить статистику проекта
+router.get('/:id/stats', authenticateToken, validateObjectId, async (req, res) => {
+  try {
+    const project = await Project.findOne({
+      _id: req.params.id,
+      $or: [
+        { owner: req.user._id },
+        { 'members.user': req.user._id }
+      ]
+    });
+
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    // Получаем задачи проекта
+    const tasks = await Task.find({ project: project._id });
+    
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(t => t.status === 'Done').length;
+    const inProgressTasks = tasks.filter(t => t.status === 'In Progress').length;
+    const todoTasks = tasks.filter(t => t.status === 'To Do' || t.status === 'Backlog').length;
+    
+    const priorityStats = {
+      low: tasks.filter(t => t.priority === 'low').length,
+      medium: tasks.filter(t => t.priority === 'medium').length,
+      high: tasks.filter(t => t.priority === 'high').length,
+      critical: tasks.filter(t => t.priority === 'critical').length
+    };
+
+    const now = new Date();
+    const overdueTasks = tasks.filter(t => 
+      t.dueDate && 
+      new Date(t.dueDate) < now && 
+      t.status !== 'Done'
+    ).length;
+
+    const memberStats = {};
+    project.members.forEach(member => {
+      const memberTasks = tasks.filter(t => 
+        t.creator.toString() === member.user.toString() || 
+        t.assignee?.toString() === member.user.toString()
+      );
+      
+      memberStats[member.user] = {
+        tasks: memberTasks.length,
+        completed: memberTasks.filter(t => t.status === 'Done').length,
+        inProgress: memberTasks.filter(t => t.status === 'In Progress').length,
+        overdue: memberTasks.filter(t => 
+          t.dueDate && 
+          new Date(t.dueDate) < now && 
+          t.status !== 'Done'
+        ).length
+      };
+    });
+
+    const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    res.json({
+      message: 'Project statistics retrieved',
+      stats: {
+        totalTasks,
+        completedTasks,
+        inProgressTasks,
+        todoTasks,
+        progress,
+        overdueTasks,
+        priorityStats,
+        memberStats,
+        activeMembers: project.members.length
+      }
+    });
+  } catch (error) {
+    console.error('Get project stats error:', error);
+    res.status(500).json({ message: 'Server error while fetching project statistics' });
   }
 });
 

@@ -89,7 +89,7 @@ export const commentService = {
         responseType: 'blob'
       });
       
-      // Создаем ссылку для скачивания
+      // Создаём ссылку для скачивания
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;

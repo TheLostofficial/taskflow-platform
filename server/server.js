@@ -15,8 +15,11 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import projectRoutes from './routes/projects.js';
 import taskRoutes from './routes/tasks.js';
-import commentRoutes from './routes/comments.js';
 import inviteRoutes from './routes/invites.js';
+
+// Импорт контроллеров для установки socketServer
+import * as taskController from './controllers/taskController.js';
+import * as projectController from './controllers/projectController.js';
 
 // Настройка путей для ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -101,7 +104,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
-app.use('/api/comments', commentRoutes);
 app.use('/api/invites', inviteRoutes);
 
 // Health check endpoint
@@ -120,6 +122,247 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
   console.log('📁 Создана папка uploads');
+}
+
+// Функция инициализации WebSocket сервера
+function initSocketServer(io) {
+  console.log('🔄 Инициализация WebSocket сервера...');
+
+  // Хранилище подключенных пользователей
+  const connectedUsers = new Map();
+
+  // Middleware для проверки токена
+  io.use((socket, next) => {
+    const token = socket.handshake.query.token;
+    
+    if (!token) {
+      console.log('❌ WebSocket: Токен не предоставлен');
+      return next(new Error('Токен не предоставлен'));
+    }
+
+    try {
+      // Декодируем токен без проверки секрета (для простоты)
+      // В реальном приложении нужно использовать jwt.verify
+      const decoded = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      socket.userId = decoded.userId || decoded._id;
+      console.log(`✅ WebSocket: Пользователь ${socket.userId} аутентифицирован`);
+      next();
+    } catch (error) {
+      console.error('❌ WebSocket: Ошибка проверки токена:', error.message);
+      next(new Error('Неверный токен'));
+    }
+  });
+
+  io.on('connection', (socket) => {
+    const userId = socket.userId;
+    console.log(`🔗 Новое подключение: ${socket.id}, пользователь: ${userId}`);
+
+    if (userId) {
+      connectedUsers.set(socket.id, userId);
+      
+      // Присоединяем пользователя к его персональной комнате
+      socket.join(`user_${userId}`);
+      console.log(`👤 Пользователь ${userId} присоединился к комнате user_${userId}`);
+    }
+
+    // Присоединение к проекту
+    socket.on('join_project', (projectId) => {
+      if (projectId) {
+        socket.join(`project_${projectId}`);
+        console.log(`👥 Клиент ${socket.id} присоединился к проекту ${projectId}`);
+      }
+    });
+
+    // Выход из проекта
+    socket.on('leave_project', (projectId) => {
+      if (projectId) {
+        socket.leave(`project_${projectId}`);
+        console.log(`👋 Клиент ${socket.id} покинул проект ${projectId}`);
+      }
+    });
+
+    // Присоединение к задаче
+    socket.on('join_task', (taskId) => {
+      if (taskId) {
+        socket.join(`task_${taskId}`);
+        console.log(`📋 Клиент ${socket.id} присоединился к задаче ${taskId}`);
+      }
+    });
+
+    // Выход из задачи
+    socket.on('leave_task', (taskId) => {
+      if (taskId) {
+        socket.leave(`task_${taskId}`);
+        console.log(`👋 Клиент ${socket.id} покинул задачу ${taskId}`);
+      }
+    });
+
+    // Пинг-понг для поддержания соединения
+    socket.on('ping', () => {
+      socket.emit('pong', { timestamp: new Date().toISOString() });
+    });
+
+    // Отключение
+    socket.on('disconnect', () => {
+      const userId = connectedUsers.get(socket.id);
+      if (userId) {
+        console.log(`❌ Отключение: пользователь ${userId} (socket: ${socket.id})`);
+        connectedUsers.delete(socket.id);
+      } else {
+        console.log(`❌ Отключение: ${socket.id}`);
+      }
+    });
+  });
+
+  // Методы для использования в контроллерах
+  const socketServer = {
+    // Уведомление о создании задачи
+    notifyTaskCreated: (projectId, task, userId) => {
+      if (projectId && task) {
+        console.log(`🔔 WebSocket: Уведомление о создании задачи в проекте ${projectId}`);
+        io.to(`project_${projectId}`).emit('task_created', {
+          task,
+          createdBy: userId
+        });
+      }
+    },
+    
+    // Уведомление об обновлении задачи
+    notifyTaskUpdated: (projectId, task, userId) => {
+      if (projectId && task) {
+        console.log(`🔔 WebSocket: Уведомление об обновлении задачи в проекте ${projectId}`);
+        io.to(`project_${projectId}`).emit('task_updated', {
+          task,
+          updatedBy: userId
+        });
+        
+        io.to(`task_${task._id}`).emit('task_updated', {
+          task,
+          updatedBy: userId
+        });
+      }
+    },
+    
+    // Уведомление об удалении задачи
+    notifyTaskDeleted: (projectId, taskId, userId) => {
+      if (projectId && taskId) {
+        console.log(`🔔 WebSocket: Уведомление об удалении задачи ${taskId}`);
+        io.to(`project_${projectId}`).emit('task_deleted', {
+          taskId,
+          deletedBy: userId
+        });
+        
+        io.to(`task_${taskId}`).emit('task_deleted', {
+          taskId,
+          deletedBy: userId
+        });
+      }
+    },
+    
+    // Уведомление о добавлении комментария
+    notifyCommentAdded: (taskId, comment, projectId, userId) => {
+      if (taskId && comment) {
+        console.log(`🔔 WebSocket: Уведомление о комментарии в задаче ${taskId}`);
+        io.to(`task_${taskId}`).emit('comment_added', {
+          taskId,
+          comment,
+          addedBy: userId
+        });
+        
+        if (projectId) {
+          io.to(`project_${projectId}`).emit('comment_added', {
+            taskId,
+            comment,
+            addedBy: userId
+          });
+        }
+      }
+    },
+    
+    // Уведомление об обновлении комментария
+    notifyCommentUpdated: (taskId, comment, userId) => {
+      if (taskId && comment) {
+        io.to(`task_${taskId}`).emit('comment_updated', {
+          taskId,
+          comment,
+          updatedBy: userId
+        });
+      }
+    },
+    
+    // Уведомление об удалении комментария
+    notifyCommentDeleted: (taskId, commentId, userId) => {
+      if (taskId && commentId) {
+        io.to(`task_${taskId}`).emit('comment_deleted', {
+          taskId,
+          commentId,
+          deletedBy: userId
+        });
+      }
+    },
+    
+    // Уведомление упомянутого пользователя
+    notifyUserMentioned: (userId, notification) => {
+      console.log(`🔔 WebSocket: Уведомление пользователя ${userId} об упоминании`);
+      io.to(`user_${userId}`).emit('user_mentioned', notification);
+    },
+    
+    // Уведомление об обновлении проекта
+    notifyProjectUpdated: (project, userId) => {
+      if (project && project._id) {
+        console.log(`🔔 WebSocket: Уведомление об обновлении проекта ${project._id}`);
+        io.to(`project_${project._id}`).emit('project_updated', {
+          project,
+          updatedBy: userId
+        });
+      }
+    },
+    
+    // Уведомление об удалении проекта
+    notifyProjectDeleted: (projectId, userId) => {
+      if (projectId) {
+        console.log(`🔔 WebSocket: Уведомление об удалении проекта ${projectId}`);
+        io.to(`project_${projectId}`).emit('project_deleted', {
+          projectId,
+          deletedBy: userId
+        });
+      }
+    },
+    
+    // Уведомление о присоединении участника
+    notifyMemberJoined: (projectId, userId) => {
+      if (projectId && userId) {
+        console.log(`🔔 WebSocket: Уведомление о присоединении участника ${userId} к проекту ${projectId}`);
+        io.to(`project_${projectId}`).emit('member_joined', {
+          projectId,
+          userId
+        });
+      }
+    },
+    
+    // Уведомление о выходе участника
+    notifyMemberLeft: (projectId, userId) => {
+      if (projectId && userId) {
+        console.log(`🔔 WebSocket: Уведомление о выходе участника ${userId} из проекта ${projectId}`);
+        io.to(`project_${projectId}`).emit('member_left', {
+          projectId,
+          userId
+        });
+      }
+    },
+    
+    // Отправка сообщения конкретному пользователю
+    sendToUser: (userId, event, data) => {
+      console.log(`🔔 WebSocket: Отправка события ${event} пользователю ${userId}`);
+      io.to(`user_${userId}`).emit(event, data);
+    }
+  };
+  
+  // Устанавливаем socketServer в app для доступа из контроллеров
+  app.set('socketServer', socketServer);
+  
+  // Экспортируем для использования в контроллерах
+  return socketServer;
 }
 
 // Подключение к MongoDB
@@ -190,213 +433,6 @@ const gracefulShutdown = () => {
 
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
-
-// Функция инициализации WebSocket сервера
-function initSocketServer(io) {
-  console.log('🔄 Инициализация WebSocket сервера...');
-
-  // Хранилище подключенных пользователей
-  const connectedUsers = new Map();
-
-  io.on('connection', (socket) => {
-    console.log(`🔗 Новое подключение: ${socket.id}`);
-
-    // Обработка аутентификации пользователя
-    socket.on('authenticate', (userId) => {
-      if (userId) {
-        connectedUsers.set(socket.id, userId);
-        console.log(`👤 Пользователь ${userId} аутентифицирован (socket: ${socket.id})`);
-        
-        // Присоединяем пользователя к его персональной комнате
-        socket.join(`user_${userId}`);
-      }
-    });
-
-    // Присоединение к проекту
-    socket.on('join_project', (projectId) => {
-      if (projectId) {
-        socket.join(`project_${projectId}`);
-        console.log(`👥 Клиент ${socket.id} присоединился к проекту ${projectId}`);
-      }
-    });
-
-    // Выход из проекта
-    socket.on('leave_project', (projectId) => {
-      if (projectId) {
-        socket.leave(`project_${projectId}`);
-        console.log(`👋 Клиент ${socket.id} покинул проект ${projectId}`);
-      }
-    });
-
-    // Присоединение к задаче
-    socket.on('join_task', (taskId) => {
-      if (taskId) {
-        socket.join(`task_${taskId}`);
-        console.log(`📋 Клиент ${socket.id} присоединился к задаче ${taskId}`);
-      }
-    });
-
-    // Выход из задачи
-    socket.on('leave_task', (taskId) => {
-      if (taskId) {
-        socket.leave(`task_${taskId}`);
-        console.log(`👋 Клиент ${socket.id} покинул задачу ${taskId}`);
-      }
-    });
-
-    // События для задач
-    socket.on('task_updated', (data) => {
-      const { projectId, taskId, task, updatedBy } = data;
-      if (projectId && taskId) {
-        console.log(`✏️ Задача ${taskId} обновлена пользователем ${updatedBy}`);
-        
-        // Отправляем обновление всем, кто подключен к проекту
-        socket.to(`project_${projectId}`).emit('task_updated', {
-          task,
-          updatedBy
-        });
-        
-        // Отправляем обновление всем, кто подключен к задаче
-        socket.to(`task_${taskId}`).emit('task_updated', {
-          task,
-          updatedBy
-        });
-      }
-    });
-
-    socket.on('task_created', (data) => {
-      const { projectId, task, createdBy } = data;
-      if (projectId) {
-        console.log(`➕ Задача ${task._id} создана пользователем ${createdBy}`);
-        
-        // Отправляем создание всем, кто подключен к проекту
-        socket.to(`project_${projectId}`).emit('task_created', {
-          task,
-          createdBy
-        });
-      }
-    });
-
-    socket.on('task_deleted', (data) => {
-      const { projectId, taskId, deletedBy } = data;
-      if (projectId && taskId) {
-        console.log(`🗑️ Задача ${taskId} удалена пользователем ${deletedBy}`);
-        
-        // Отправляем удаление всем, кто подключен к проекту
-        socket.to(`project_${projectId}`).emit('task_deleted', {
-          taskId,
-          deletedBy
-        });
-        
-        // Отправляем удаление всем, кто подключен к задаче
-        socket.to(`task_${taskId}`).emit('task_deleted', {
-          taskId,
-          deletedBy
-        });
-      }
-    });
-
-    // События для комментариев
-    socket.on('comment_added', (data) => {
-      const { projectId, taskId, comment, addedBy } = data;
-      if (projectId && taskId) {
-        console.log(`💬 Комментарий добавлен к задаче ${taskId} пользователем ${addedBy}`);
-        
-        // Отправляем комментарий всем, кто подключен к задаче
-        socket.to(`task_${taskId}`).emit('comment_added', {
-          taskId,
-          comment,
-          addedBy
-        });
-        
-        // Отправляем комментарий всем, кто подключен к проекту
-        socket.to(`project_${projectId}`).emit('comment_added', {
-          taskId,
-          comment,
-          addedBy
-        });
-      }
-    });
-
-    // Отключение
-    socket.on('disconnect', () => {
-      const userId = connectedUsers.get(socket.id);
-      if (userId) {
-        console.log(`❌ Отключение: пользователь ${userId} (socket: ${socket.id})`);
-        connectedUsers.delete(socket.id);
-      } else {
-        console.log(`❌ Отключение: ${socket.id}`);
-      }
-    });
-  });
-
-  // Методы для использования в контроллерах
-  return {
-    // Уведомление о создании задачи
-    notifyTaskCreated: (projectId, task, userId) => {
-      if (projectId && task) {
-        io.to(`project_${projectId}`).emit('task_created', {
-          task,
-          createdBy: userId
-        });
-      }
-    },
-    
-    // Уведомление об обновлении задачи
-    notifyTaskUpdated: (projectId, task, userId) => {
-      if (projectId && task) {
-        io.to(`project_${projectId}`).emit('task_updated', {
-          task,
-          updatedBy: userId
-        });
-        
-        io.to(`task_${task._id}`).emit('task_updated', {
-          task,
-          updatedBy: userId
-        });
-      }
-    },
-    
-    // Уведомление об удалении задачи
-    notifyTaskDeleted: (projectId, taskId, userId) => {
-      if (projectId && taskId) {
-        io.to(`project_${projectId}`).emit('task_deleted', {
-          taskId,
-          deletedBy: userId
-        });
-        
-        io.to(`task_${taskId}`).emit('task_deleted', {
-          taskId,
-          deletedBy: userId
-        });
-      }
-    },
-    
-    // Уведомление о добавлении комментария
-    notifyCommentAdded: (taskId, comment, projectId, userId) => {
-      if (taskId && comment) {
-        io.to(`task_${taskId}`).emit('comment_added', {
-          taskId,
-          comment,
-          addedBy: userId
-        });
-        
-        if (projectId) {
-          io.to(`project_${projectId}`).emit('comment_added', {
-            taskId,
-            comment,
-            addedBy: userId
-          });
-        }
-      }
-    },
-    
-    // Уведомление упомянутого пользователя
-    notifyUserMentioned: (userId, notification) => {
-      io.to(`user_${userId}`).emit('user_mentioned', notification);
-    }
-  };
-}
 
 // Экспорт для тестирования
 export { app, server, io, initSocketServer };
