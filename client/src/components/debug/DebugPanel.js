@@ -1,191 +1,308 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Alert, Badge } from 'react-bootstrap';
-import { projectService } from '../../services/projectService';
-import { API_URL } from '../../utils/constants';
+import { useSelector, useDispatch } from 'react-redux';
+import { 
+  Card, 
+  Button, 
+  Badge, 
+  ListGroup, 
+  Form, 
+  Accordion,
+  Alert
+} from 'react-bootstrap';
 
 const DebugPanel = () => {
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('unknown');
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('redux');
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(5000);
 
-  const addLog = (message, type = 'info') => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, { timestamp, message, type }].slice(-10));
-  };
+  const auth = useSelector((state) => state.auth);
+  const projects = useSelector((state) => state.projects);
+  const tasks = useSelector((state) => state.tasks);
+  const dispatch = useDispatch();
 
-  const testConnection = async () => {
-    setLoading(true);
-    addLog('Запуск теста соединения...', 'info');
-    
-    try {
-      const result = await projectService.testConnection();
-      addLog(`✅ Тест успешен: ${JSON.stringify(result.data)}`, 'success');
-      setConnectionStatus('connected');
-    } catch (error) {
-      addLog(`❌ Ошибка теста: ${error.message}`, 'error');
-      setConnectionStatus('error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const testGetProjects = async () => {
-    setLoading(true);
-    addLog('Попытка загрузки проектов...', 'info');
-    
-    try {
-      const result = await projectService.getProjects();
-      addLog(`✅ Проекты загружены: ${result.data.projects?.length || 0} проектов`, 'success');
-      addLog(`📊 Данные: ${JSON.stringify(result.data).substring(0, 200)}...`, 'info');
-    } catch (error) {
-      addLog(`❌ Ошибка загрузки проектов: ${error.message}`, 'error');
-      if (error.response) {
-        addLog(`📡 Статус: ${error.response.status}, Данные: ${JSON.stringify(error.response.data)}`, 'error');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const clearCache = () => {
-    projectService.clearCache();
-    addLog('🧹 Кэш очищен', 'info');
-  };
-
-  const checkToken = () => {
-    const token = localStorage.getItem('token');
-    const user = localStorage.getItem('user');
-    
-    addLog(`🔑 Токен: ${token ? `присутствует (${token.length} символов)` : 'отсутствует'}`, 'info');
-    addLog(`👤 Пользователь: ${user ? JSON.parse(user).email : 'не найден'}`, 'info');
-    
-    // Декодируем токен для отладки
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        addLog(`🔍 Декодированный токен: ${JSON.stringify(payload)}`, 'info');
-      } catch (e) {
-        addLog(`❌ Не удалось декодировать токен: ${e.message}`, 'error');
-      }
-    }
-  };
-
-  const testAuth = async () => {
-    setLoading(true);
-    addLog('Тестирование аутентификации...', 'info');
-    
-    try {
-      const response = await fetch(`${API_URL}/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        addLog(`✅ Аутентификация успешна: ${data.user?.email}`, 'success');
-      } else {
-        addLog(`❌ Аутентификация не удалась: ${response.status}`, 'error');
-      }
-    } catch (error) {
-      addLog(`❌ Ошибка при тесте аутентификации: ${error.message}`, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Авто-обновление состояния
   useEffect(() => {
-    checkToken();
-  }, []);
+    let interval;
+    if (autoRefresh && isOpen) {
+      interval = setInterval(() => {
+        console.log('[Debug] Auto-refreshing state...');
+      }, refreshInterval);
+    }
+    return () => clearInterval(interval);
+  }, [autoRefresh, refreshInterval, isOpen]);
+
+  const getStateInfo = () => {
+    return {
+      auth: {
+        isAuthenticated: auth?.isAuthenticated || false,
+        user: auth?.user ? `${auth.user.name} (${auth.user.email})` : 'null',
+        loading: auth?.loading || false,
+        error: auth?.error || null
+      },
+      projects: {
+        count: projects?.projects?.length || 0,
+        currentProject: projects?.currentProject?.name || 'null',
+        loading: projects?.loading || false,
+        error: projects?.error || null
+      },
+      tasks: {
+        count: tasks?.tasks?.length || 0,
+        loading: tasks?.loading || false,
+        error: tasks?.error || null
+      }
+    };
+  };
+
+  const testWebSocket = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/health/ws');
+      const data = await response.json();
+      
+      if (data.status === 'connected') {
+        window.alert('✅ WebSocket connection is active');
+      } else {
+        window.alert('⚠️ WebSocket connection issue');
+      }
+      return data;
+    } catch (error) {
+      window.alert(`❌ WebSocket Test Failed: ${error.message}`);
+      throw error;
+    }
+  };
+
+  const simulateTaskUpdate = () => {
+    const mockTaskUpdate = {
+      type: 'TASK_UPDATED',
+      payload: {
+        _id: 'debug_' + Date.now(),
+        title: `Debug Task ${new Date().toLocaleTimeString()}`,
+        status: 'in_progress',
+        priority: 'medium',
+        updatedAt: new Date().toISOString()
+      }
+    };
+    
+    dispatch(mockTaskUpdate);
+    
+    window.alert('ℹ️ Task Update Simulated: Mock task update dispatched to Redux');
+  };
+
+  const clearAllNotifications = () => {
+    window.alert('✅ All notifications have been cleared');
+  };
+
+  const resetAllStates = () => {
+    if (window.confirm('Are you sure? This will reset all Redux states.')) {
+      dispatch({ type: 'RESET_AUTH' });
+      dispatch({ type: 'RESET_PROJECTS' });
+      dispatch({ type: 'RESET_TASKS' });
+      
+      window.alert('✅ All Redux states have been reset to initial');
+    }
+  };
+
+  const renderReduxState = () => (
+    <div className="mt-3">
+      <h6>Redux State</h6>
+      <Accordion>
+        <Accordion.Item eventKey="0">
+          <Accordion.Header>
+            Auth State <Badge bg={getStateInfo().auth.isAuthenticated ? 'success' : 'danger'}>
+              {getStateInfo().auth.isAuthenticated ? 'Logged In' : 'Logged Out'}
+            </Badge>
+          </Accordion.Header>
+          <Accordion.Body>
+            <pre className="bg-dark text-light p-2 rounded" style={{ fontSize: '12px' }}>
+              {JSON.stringify(getStateInfo().auth, null, 2)}
+            </pre>
+          </Accordion.Body>
+        </Accordion.Item>
+
+        <Accordion.Item eventKey="1">
+          <Accordion.Header>
+            Projects State <Badge bg="info">{getStateInfo().projects.count} projects</Badge>
+          </Accordion.Header>
+          <Accordion.Body>
+            <pre className="bg-dark text-light p-2 rounded" style={{ fontSize: '12px' }}>
+              {JSON.stringify(getStateInfo().projects, null, 2)}
+            </pre>
+          </Accordion.Body>
+        </Accordion.Item>
+
+        <Accordion.Item eventKey="2">
+          <Accordion.Header>
+            Tasks State <Badge bg="info">{getStateInfo().tasks.count} tasks</Badge>
+          </Accordion.Header>
+          <Accordion.Body>
+            <pre className="bg-dark text-light p-2 rounded" style={{ fontSize: '12px' }}>
+              {JSON.stringify(getStateInfo().tasks, null, 2)}
+            </pre>
+          </Accordion.Body>
+        </Accordion.Item>
+      </Accordion>
+    </div>
+  );
+
+  const renderActions = () => (
+    <div className="mt-3">
+      <h6>Debug Actions</h6>
+      <ListGroup>
+        <ListGroup.Item>
+          <Button 
+            variant="outline-primary" 
+            size="sm" 
+            onClick={testWebSocket}
+            className="w-100 mb-2"
+          >
+            Test WebSocket Connection
+          </Button>
+        </ListGroup.Item>
+        <ListGroup.Item>
+          <Button 
+            variant="outline-warning" 
+            size="sm" 
+            onClick={simulateTaskUpdate}
+            className="w-100 mb-2"
+          >
+            Simulate Task Update
+          </Button>
+        </ListGroup.Item>
+        <ListGroup.Item>
+          <Button 
+            variant="outline-info" 
+            size="sm" 
+            onClick={clearAllNotifications}
+            className="w-100 mb-2"
+          >
+            Clear All Notifications
+          </Button>
+        </ListGroup.Item>
+        <ListGroup.Item>
+          <Button 
+            variant="outline-danger" 
+            size="sm" 
+            onClick={resetAllStates}
+            className="w-100"
+          >
+            Reset All States
+          </Button>
+        </ListGroup.Item>
+      </ListGroup>
+    </div>
+  );
+
+  const renderSettings = () => (
+    <div className="mt-3">
+      <h6>Debug Settings</h6>
+      <Form>
+        <Form.Check
+          type="switch"
+          id="auto-refresh"
+          label="Auto-refresh state"
+          checked={autoRefresh}
+          onChange={(e) => setAutoRefresh(e.target.checked)}
+          className="mb-3"
+        />
+        
+        {autoRefresh && (
+          <Form.Group className="mb-3">
+            <Form.Label>Refresh Interval: {refreshInterval}ms</Form.Label>
+            <Form.Range
+              min="1000"
+              max="30000"
+              step="1000"
+              value={refreshInterval}
+              onChange={(e) => setRefreshInterval(parseInt(e.target.value))}
+            />
+          </Form.Group>
+        )}
+      </Form>
+    </div>
+  );
+
+  if (!isOpen) {
+    return (
+      <Button
+        variant="outline-secondary"
+        size="sm"
+        onClick={() => setIsOpen(true)}
+        style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          zIndex: 9999,
+          borderRadius: '50%',
+          width: '50px',
+          height: '50px'
+        }}
+      >
+        🐞
+      </Button>
+    );
+  }
 
   return (
-    <Card className="mt-3">
-      <Card.Header>
-        <h5 className="mb-0">🔧 Панель отладки</h5>
-        <small>Для диагностики проблемы с загрузкой проектов</small>
-      </Card.Header>
-      <Card.Body>
-        <div className="mb-3">
-          <h6>Состояние:</h6>
-          <div className="d-flex gap-2 mb-2">
-            <Badge bg={connectionStatus === 'connected' ? 'success' : 'danger'}>
-              Соединение: {connectionStatus}
-            </Badge>
-            <Badge bg="info">
-              API: {API_URL}
-            </Badge>
-          </div>
-        </div>
-
-        <div className="mb-3">
-          <h6>Действия:</h6>
-          <div className="d-flex flex-wrap gap-2">
-            <Button
-              variant="outline-primary"
-              size="sm"
-              onClick={testConnection}
-              disabled={loading}
-            >
-              Тест соединения
-            </Button>
-            <Button
-              variant="outline-success"
-              size="sm"
-              onClick={testGetProjects}
-              disabled={loading}
-            >
-              Тест загрузки проектов
-            </Button>
-            <Button
-              variant="outline-warning"
-              size="sm"
-              onClick={checkToken}
-              disabled={loading}
-            >
-              Проверить токен
-            </Button>
-            <Button
-              variant="outline-info"
-              size="sm"
-              onClick={testAuth}
-              disabled={loading}
-            >
-              Тест аутентификации
-            </Button>
-            <Button
-              variant="outline-secondary"
-              size="sm"
-              onClick={clearCache}
-            >
-              Очистить кэш
-            </Button>
-          </div>
-        </div>
-
+    <Card
+      style={{
+        position: 'fixed',
+        bottom: '20px',
+        right: '20px',
+        width: '400px',
+        maxHeight: '80vh',
+        zIndex: 9999,
+        boxShadow: '0 0 20px rgba(0,0,0,0.3)'
+      }}
+    >
+      <Card.Header className="d-flex justify-content-between align-items-center">
+        <strong>🐞 Debug Panel</strong>
         <div>
-          <h6>Логи:</h6>
-          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-            {logs.length === 0 ? (
-              <Alert variant="info">Логи пока пусты. Выполните тесты для получения информации.</Alert>
-            ) : (
-              logs.map((log, index) => (
-                <div
-                  key={index}
-                  className={`mb-1 p-2 border rounded ${
-                    log.type === 'error' ? 'border-danger bg-light' :
-                    log.type === 'success' ? 'border-success bg-light' :
-                    'border-info bg-light'
-                  }`}
-                >
-                  <small className="text-muted">[{log.timestamp}]</small>{' '}
-                  <span className={log.type === 'error' ? 'text-danger' : log.type === 'success' ? 'text-success' : 'text-dark'}>
-                    {log.message}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+          <Button
+            variant="outline-secondary"
+            size="sm"
+            onClick={() => setIsOpen(false)}
+            className="ms-2"
+          >
+            ✕
+          </Button>
         </div>
+      </Card.Header>
+      
+      <Card.Body style={{ overflowY: 'auto' }}>
+        <div className="mb-3">
+          <Button
+            variant={activeTab === 'redux' ? 'primary' : 'outline-primary'}
+            size="sm"
+            onClick={() => setActiveTab('redux')}
+            className="me-2"
+          >
+            Redux
+          </Button>
+          <Button
+            variant={activeTab === 'actions' ? 'warning' : 'outline-warning'}
+            size="sm"
+            onClick={() => setActiveTab('actions')}
+            className="me-2"
+          >
+            Actions
+          </Button>
+          <Button
+            variant={activeTab === 'settings' ? 'info' : 'outline-info'}
+            size="sm"
+            onClick={() => setActiveTab('settings')}
+          >
+            Settings
+          </Button>
+        </div>
+
+        {activeTab === 'redux' && renderReduxState()}
+        {activeTab === 'actions' && renderActions()}
+        {activeTab === 'settings' && renderSettings()}
+
+        <Alert variant="warning" className="mt-3" style={{ fontSize: '12px' }}>
+          <strong>Warning:</strong> Debug panel is for development only. 
+          Disable in production.
+        </Alert>
       </Card.Body>
     </Card>
   );

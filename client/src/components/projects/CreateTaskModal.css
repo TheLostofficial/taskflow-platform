@@ -1,0 +1,64 @@
+/* CreateTaskModal.css */
+.create-task-modal .modal-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.create-task-modal .modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.create-task-form .form-label {
+  font-weight: 500;
+  color: #495057;
+}
+
+.create-task-form .form-control,
+.create-task-form .form-select {
+  border-color: #ced4da;
+}
+
+.create-task-form .form-control:focus,
+.create-task-form .form-select:focus {
+  border-color: #4361ee;
+  box-shadow: 0 0 0 0.25rem rgba(67, 97, 238, 0.25);
+}
+
+.date-input-group {
+  position: relative;
+}
+
+.date-input-group i {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6c757d;
+  pointer-events: none;
+}
+
+.required-field::after {
+  content: "*";
+  color: #dc3545;
+  margin-left: 4px;
+}
+
+.modal-footer {
+  border-top: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+}
+
+@media (max-width: 768px) {
+  .create-task-modal .modal-dialog {
+    margin: 10px;
+  }
+  
+  .create-task-form .row {
+    margin-bottom: 0;
+  }
+  
+  .create-task-form .col-md-6 {
+    margin-bottom: 15px;
+  }
+}

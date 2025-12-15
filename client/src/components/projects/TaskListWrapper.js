@@ -1,66 +1,60 @@
 import React, { useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { Spinner, Alert } from 'react-bootstrap';
-import { fetchProjectTasks, clearTasks, updateLastFetchTime } from '../../store/slices/tasksSlice';
+import { useSelector, useDispatch } from 'react-redux';
+import { useParams } from 'react-router-dom';
+import { 
+  fetchProjectTasks,
+  setCurrentTask
+} from '../../store/slices/tasksSlice';
 import TaskList from './TaskList';
 
 const TaskListWrapper = ({ project, canEdit }) => {
+  const { id } = useParams();
   const dispatch = useDispatch();
-  const { 
-    currentProjectId, 
-    items: tasks, 
-    loading, 
-    error
-  } = useSelector(state => state.tasks || {});
-
+  const { items: tasks = [], isLoading, error } = useSelector(state => state.tasks || { items: [] });
+  
   useEffect(() => {
-    if (!project?._id) return;
-    
-    // Загружаем задачи только если это другой проект или задачи еще не загружены
-    if (currentProjectId !== project._id || tasks.length === 0) {
-      console.log(`🔄 TaskListWrapper: Загрузка задач для проекта ${project._id}`);
+    if (id && project?._id) {
       dispatch(fetchProjectTasks(project._id));
-      dispatch(updateLastFetchTime());
     }
-    
-    return () => {
-      // Очищаем задачи только если уходим с этой страницы
-      if (currentProjectId === project._id) {
-        dispatch(clearTasks());
-      }
-    };
-  }, [project?._id, currentProjectId, dispatch, tasks.length]);
+  }, [id, project?._id, dispatch]);
 
-  if (!project?._id) {
+  const handleTaskClick = (task) => {
+    dispatch(setCurrentTask(task));
+  };
+
+  if (isLoading) {
     return (
-      <Alert variant="warning">
-        Проект не загружен. Невозможно отобразить задачи.
-      </Alert>
+      <div className="text-center py-5">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Загрузка...</span>
+        </div>
+        <p className="mt-3">Загрузка задач...</p>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <Alert variant="danger">
-        <Alert.Heading>Ошибка загрузки задач</Alert.Heading>
-        <p>{error}</p>
-      </Alert>
+      <div className="alert alert-danger" role="alert">
+        Ошибка загрузки задач: {error}
+      </div>
     );
   }
 
-  if (loading) {
+  if (!project) {
     return (
-      <div className="text-center py-5">
-        <Spinner animation="border" variant="primary" />
-        <p className="mt-3">Загрузка задач...</p>
+      <div className="alert alert-warning" role="alert">
+        Проект не найден
       </div>
     );
   }
 
   return (
     <TaskList 
-      project={project} 
+      tasks={tasks}
+      project={project}
       canEdit={canEdit}
+      onTaskClick={handleTaskClick}
     />
   );
 };

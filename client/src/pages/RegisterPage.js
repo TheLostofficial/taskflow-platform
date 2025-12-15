@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Form, Button, Card, Container, Row, Col, Alert } from 'react-bootstrap';
-import { LinkContainer } from 'react-router-bootstrap';
+import { Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { registerUser } from '../store/slices/authSlice';
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +13,8 @@ const RegisterPage = () => {
     confirmPassword: ''
   });
   
+  const [validationError, setValidationError] = useState('');
+  
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { loading, error } = useSelector(state => state.auth);
@@ -22,110 +24,127 @@ const RegisterPage = () => {
       ...formData,
       [e.target.name]: e.target.value
     });
+    if (validationError) setValidationError('');
   };
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  
-  if (formData.password !== formData.confirmPassword) {
-    alert('Пароли не совпадают');
-    return;
-  }
-
-  try {
-    const result = await dispatch(registerUser({
-      name: formData.name,
-      email: formData.email,
-      password: formData.password
-    })).unwrap();
+    e.preventDefault();
     
-    if (result) {
-      navigate('/dashboard');
+    if (formData.password !== formData.confirmPassword) {
+      setValidationError('Пароли не совпадают');
+      return;
     }
-  } catch (error) {
-    console.error('Registration failed:', error);
-  }
-};
+
+    try {
+      const result = await dispatch(registerUser({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password
+      })).unwrap();
+      
+      if (result) {
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      console.error('Registration failed:', error);
+    }
+  };
 
   return (
-    <Container>
+    <Container className="py-4">
       <Row className="justify-content-center">
         <Col md={6} lg={4}>
-          <Card className="shadow">
-            <Card.Body>
+          <Card className="shadow-sm border-0">
+            <Card.Body className="p-4">
               <div className="text-center mb-4">
-                <h2>Регистрация</h2>
-                <p className="text-muted">Создайте новый аккаунт</p>
+                <h2 className="h4 fw-bold mb-2">📝 Регистрация</h2>
+                <p className="text-muted mb-0">Создайте новый аккаунт</p>
               </div>
 
-              {error && <Alert variant="danger">{error}</Alert>}
+              {(error || validationError) && (
+                <Alert variant="danger" className="text-center small">
+                  {error || validationError}
+                </Alert>
+              )}
 
               <Form onSubmit={handleSubmit}>
                 <Form.Group className="mb-3">
-                  <Form.Label>Имя</Form.Label>
+                  <Form.Label className="small fw-semibold">Имя</Form.Label>
                   <Form.Control
                     type="text"
                     name="name"
                     value={formData.name}
                     onChange={handleChange}
                     required
-                    placeholder="Введите ваше имя"
+                    placeholder="Ваше имя"
+                    className="py-2"
                   />
                 </Form.Group>
 
                 <Form.Group className="mb-3">
-                  <Form.Label>Email</Form.Label>
+                  <Form.Label className="small fw-semibold">Email</Form.Label>
                   <Form.Control
                     type="email"
                     name="email"
                     value={formData.email}
                     onChange={handleChange}
                     required
-                    placeholder="Введите ваш email"
+                    placeholder="email@example.com"
+                    className="py-2"
                   />
                 </Form.Group>
 
                 <Form.Group className="mb-3">
-                  <Form.Label>Пароль</Form.Label>
+                  <Form.Label className="small fw-semibold">Пароль</Form.Label>
                   <Form.Control
                     type="password"
                     name="password"
                     value={formData.password}
                     onChange={handleChange}
                     required
-                    placeholder="Введите пароль"
+                    placeholder="••••••••"
+                    className="py-2"
                   />
                 </Form.Group>
 
-                <Form.Group className="mb-3">
-                  <Form.Label>Подтверждение пароля</Form.Label>
+                <Form.Group className="mb-4">
+                  <Form.Label className="small fw-semibold">Подтверждение пароля</Form.Label>
                   <Form.Control
                     type="password"
                     name="confirmPassword"
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     required
-                    placeholder="Повторите пароль"
+                    placeholder="••••••••"
+                    className="py-2"
                   />
                 </Form.Group>
 
                 <Button 
                   variant="primary" 
                   type="submit" 
-                  className="w-100" 
+                  className="w-100 py-2 fw-semibold" 
                   disabled={loading}
                 >
-                  {loading ? 'Регистрация...' : 'Зарегистрироваться'}
+                  {loading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Регистрация...
+                    </>
+                  ) : 'Зарегистрироваться'}
                 </Button>
               </Form>
 
-              <div className="text-center mt-3">
-                <p>
+              <div className="text-center mt-4 pt-3 border-top">
+                <p className="mb-2 small">
                   Уже есть аккаунт?{' '}
-                  <LinkContainer to="/login">
-                    <a href="/login" className="text-decoration-none">Войти</a>
-                  </LinkContainer>
+                  <Link to="/login" className="text-decoration-none fw-semibold">
+                    Войти
+                  </Link>
                 </p>
+                <Link to="/" className="text-decoration-none small">
+                  ← На главную
+                </Link>
               </div>
             </Card.Body>
           </Card>

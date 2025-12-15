@@ -15,25 +15,39 @@ const DashboardPage = () => {
   const { user } = useSelector(state => state.auth || {});
   const { projects, loading: projectsLoading } = useSelector(state => state.projects || {});
   const { 
-    taskStats, 
+    userStats: taskStats, 
     recentActivity,
-    loading: statsLoading 
+    statsLoading, 
+    activityLoading,
+    statsError,
+    activityError
   } = useSelector(state => state.tasks || {});
   
   const [timeRange, setTimeRange] = useState('month');
   const [activeChart, setActiveChart] = useState('status');
-  const [error, setError] = useState(null);
+  const [dashboardError, setDashboardError] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        setError(null);
-        await dispatch(fetchProjects());
-        await dispatch(getUserTaskStats());
-        await dispatch(getRecentActivity());
+        setDashboardError(null);
+        console.log('📊 [DASHBOARD] Загрузка данных дашборда...');
+        
+        // Параллельная загрузка данных
+        await Promise.all([
+          dispatch(fetchProjects()),
+          dispatch(getUserTaskStats()),
+          dispatch(getRecentActivity())
+        ]);
+        
+        console.log('✅ [DASHBOARD] Данные загружены:', {
+          stats: taskStats,
+          activity: recentActivity?.length,
+          projects: projects?.length
+        });
       } catch (err) {
-        setError('Ошибка загрузки данных дашборда');
-        console.error('Dashboard data loading error:', err);
+        console.error('❌ [DASHBOARD] Ошибка загрузки данных:', err);
+        setDashboardError('Ошибка загрузки данных дашборда: ' + (err.message || 'Неизвестная ошибка'));
       }
     };
     
@@ -41,11 +55,19 @@ const DashboardPage = () => {
   }, [dispatch]);
 
   const handleRefresh = () => {
+    console.log('🔄 [DASHBOARD] Обновление данных...');
     dispatch(fetchProjects());
     dispatch(getUserTaskStats());
     dispatch(getRecentActivity());
   };
 
+  // Комбинируем все ошибки
+  const errors = [dashboardError, statsError, activityError].filter(Boolean);
+
+  // Комбинируем все флаги загрузки
+  const isLoading = statsLoading || activityLoading || projectsLoading;
+
+  // Получаем данные для приоритета
   const getPriorityData = () => {
     if (!taskStats?.priority) return [];
     
@@ -57,17 +79,19 @@ const DashboardPage = () => {
     ];
   };
 
+  // Получаем данные по статусам
   const getStatusData = () => {
     if (!taskStats) return [];
     
     return [
       { name: 'К выполнению', value: taskStats.todo || 0, color: '#6c757d' },
-      { name: 'В работе', value: taskStats.inprogress || 0, color: '#007bff' },
+      { name: 'В работе', value: taskStats.inProgress || 0, color: '#007bff' },
       { name: 'На проверке', value: taskStats.review || 0, color: '#6f42c1' },
       { name: 'Выполнено', value: taskStats.completed || 0, color: '#28a745' }
     ];
   };
 
+  // Прогресс проектов
   const getProjectProgressData = () => {
     if (!projects) return [];
     
@@ -79,6 +103,7 @@ const DashboardPage = () => {
     })).slice(0, 5);
   };
 
+  // Данные активности
   const getActivityData = () => {
     if (!recentActivity) return [];
     
@@ -87,13 +112,15 @@ const DashboardPage = () => {
     last7Days.setDate(last7Days.getDate() - 7);
     
     recentActivity.forEach(activity => {
-      const date = new Date(activity.date);
-      if (date >= last7Days) {
-        const dateStr = format(date, 'dd MMM', { locale: ru });
-        if (!activityByDay[dateStr]) {
-          activityByDay[dateStr] = 0;
+      if (activity && activity.date) {
+        const date = new Date(activity.date);
+        if (date >= last7Days) {
+          const dateStr = format(date, 'dd MMM', { locale: ru });
+          if (!activityByDay[dateStr]) {
+            activityByDay[dateStr] = 0;
+          }
+          activityByDay[dateStr]++;
         }
-        activityByDay[dateStr]++;
       }
     });
     
@@ -123,9 +150,8 @@ const DashboardPage = () => {
     );
   };
 
-  const isLoading = statsLoading || projectsLoading;
-
-  if (isLoading) {
+  // Показываем спиннер только при первой загрузке
+  if (isLoading && !taskStats && !recentActivity?.length) {
     return (
       <div className="d-flex justify-content-center align-items-center" style={{ height: '80vh' }}>
         <div className="text-center">
@@ -143,11 +169,12 @@ const DashboardPage = () => {
 
   return (
     <Container fluid className="py-4">
-      {error && (
-        <Alert variant="danger" onClose={() => setError(null)} dismissible className="mb-4">
+      {/* Отображаем все ошибки */}
+      {errors.length > 0 && errors.map((error, index) => (
+        <Alert key={index} variant="danger" onClose={() => setDashboardError(null)} dismissible className="mb-4">
           {error}
         </Alert>
-      )}
+      ))}
       
       <Row className="mb-4">
         <Col>
@@ -175,14 +202,24 @@ const DashboardPage = () => {
                   <Dropdown.Item onClick={() => setTimeRange('year')}>Год</Dropdown.Item>
                 </Dropdown.Menu>
               </Dropdown>
-              <Button variant="outline-primary" size="sm" onClick={handleRefresh}>
-                <i className="bi bi-arrow-clockwise"></i>
+              <Button 
+                variant="outline-primary" 
+                size="sm" 
+                onClick={handleRefresh}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <Spinner animation="border" size="sm" />
+                ) : (
+                  <i className="bi bi-arrow-clockwise"></i>
+                )}
               </Button>
             </div>
           </div>
         </Col>
       </Row>
 
+      {/* Статистические карточки */}
       <Row className="mb-4">
         <Col xl={3} md={6} className="mb-4">
           <Card className="border-start border-primary border-4 h-100">
@@ -192,7 +229,7 @@ const DashboardPage = () => {
                   <h6 className="text-muted mb-2">Всего задач</h6>
                   <h3 className="mb-0">{taskStats?.total || 0}</h3>
                   <small className="text-success">
-                    <i className="bi bi-arrow-up"></i> 12% с прошлой недели
+                    <i className="bi bi-arrow-up"></i> Активно
                   </small>
                 </div>
                 <div className="bg-primary bg-opacity-10 p-3 rounded-circle">
@@ -228,7 +265,7 @@ const DashboardPage = () => {
               <div className="d-flex justify-content-between align-items-center">
                 <div>
                   <h6 className="text-muted mb-2">В работе</h6>
-                  <h3 className="mb-0">{taskStats?.inprogress || 0}</h3>
+                  <h3 className="mb-0">{taskStats?.inProgress || 0}</h3>
                   <small className="text-warning">
                     <i className="bi bi-clock"></i> Активно
                   </small>
@@ -303,15 +340,14 @@ const DashboardPage = () => {
         <Col lg={4} className="mb-4">
           <Card className="h-100">
             <Card.Header className="bg-white border-bottom-0">
-              <h6 className="mb-0">Проекты</h6>
+              <div className="d-flex justify-content-between align-items-center">
+                <h6 className="mb-0">Проекты</h6>
+                <Badge bg="primary">{projects?.length || 0}</Badge>
+              </div>
             </Card.Header>
             <Card.Body>
               <div className="mb-3">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <span className="text-muted">Всего проектов</span>
-                  <Badge bg="primary">{projects?.length || 0}</Badge>
-                </div>
-                <Link to="/projects" className="btn btn-outline-primary btn-sm w-100">
+                <Link to="/projects/create" className="btn btn-outline-primary btn-sm w-100 mb-3">
                   <i className="bi bi-plus-circle me-1"></i>
                   Новый проект
                 </Link>
@@ -319,7 +355,7 @@ const DashboardPage = () => {
               
               <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
                 {projectProgressData.map((project, index) => (
-                  <div key={project.id} className="mb-3">
+                  <div key={project.id || index} className="mb-3">
                     <div className="d-flex justify-content-between align-items-center mb-1">
                       <Link 
                         to={`/projects/${project.id}`}
@@ -357,7 +393,7 @@ const DashboardPage = () => {
             <Card.Header className="bg-white border-bottom-0">
               <div className="d-flex justify-content-between align-items-center">
                 <h6 className="mb-0">Последняя активность</h6>
-                <Link to="/activity" className="btn btn-link btn-sm">
+                <Link to="/projects" className="btn btn-link btn-sm">
                   Вся активность
                 </Link>
               </div>
@@ -366,18 +402,18 @@ const DashboardPage = () => {
               {recentActivity && recentActivity.length > 0 ? (
                 <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                   <ListGroup variant="flush">
-                    {recentActivity.map((activity, index) => (
+                    {recentActivity.slice(0, 10).map((activity, index) => (
                       <ListGroup.Item key={index} className="border-0 px-0 py-2">
                         <div className="d-flex align-items-start">
                           <div className="me-3">
                             <div className="bg-light rounded-circle p-2">
-                              <span className="fs-5">{activity.icon}</span>
+                              <span className="fs-5">{activity.icon || '📝'}</span>
                             </div>
                           </div>
                           <div className="flex-grow-1">
                             <div className="d-flex justify-content-between align-items-start">
                               <div>
-                                <strong>{activity.user?.name || 'Вы'}</strong> {activity.action}
+                                <strong>{activity.user?.name || 'Вы'}</strong> {activity.action || 'выполнил(а) действие'}
                                 {activity.taskTitle && (
                                   <span className="ms-1 fw-bold">"{activity.taskTitle}"</span>
                                 )}
@@ -434,10 +470,10 @@ const DashboardPage = () => {
                   <i className="bi bi-calendar3 me-2"></i>
                   Календарь задач
                 </Link>
-                <Button variant="outline-success">
-                  <i className="bi bi-file-earmark-text me-2"></i>
-                  Создать отчет
-                </Button>
+                <Link to="/profile" className="btn btn-outline-success">
+                  <i className="bi bi-person me-2"></i>
+                  Мой профиль
+                </Link>
               </div>
               
               <hr className="my-4" />
@@ -456,8 +492,8 @@ const DashboardPage = () => {
                     </div>
                     <div className="col-6">
                       <div className="bg-light rounded p-3">
-                        <div className={`fs-4 fw-bold ${taskStats.time.difference >= 0 ? 'text-success' : 'text-danger'}`}>
-                          {taskStats.time.difference >= 0 ? '+' : ''}{taskStats.time.difference || 0}
+                        <div className={`fs-4 fw-bold ${(taskStats.time.difference || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                          {(taskStats.time.difference || 0) >= 0 ? '+' : ''}{taskStats.time.difference || 0}
                         </div>
                         <small className="text-muted">Разница с планом</small>
                       </div>
@@ -475,6 +511,7 @@ const DashboardPage = () => {
         </Col>
       </Row>
 
+      {/* Продуктивность */}
       <Row className="mt-4">
         <Col>
           <Card>
@@ -492,7 +529,7 @@ const DashboardPage = () => {
                       {taskStats?.completionRate || 0}%
                     </div>
                     <div className="text-success small">
-                      <i className="bi bi-arrow-up"></i> 5% с прошлой недели
+                      <i className="bi bi-arrow-up"></i> Прогресс
                     </div>
                   </div>
                 </Col>
@@ -507,6 +544,61 @@ const DashboardPage = () => {
           </Card>
         </Col>
       </Row>
+      
+      {/* Отладка - можно убрать в продакшене */}
+      {process.env.NODE_ENV === 'development' && (
+        <Card className="mt-4 border-info">
+          <Card.Header className="bg-info text-white">
+            <h6 className="mb-0">Отладка (только разработка)</h6>
+          </Card.Header>
+          <Card.Body>
+            <div className="row">
+              <div className="col-md-4">
+                <h6>Статистика:</h6>
+                <pre className="bg-light p-2 small" style={{ maxHeight: '200px', overflow: 'auto' }}>
+                  {JSON.stringify(taskStats || 'Нет данных', null, 2)}
+                </pre>
+              </div>
+              <div className="col-md-4">
+                <h6>Активность:</h6>
+                <pre className="bg-light p-2 small" style={{ maxHeight: '200px', overflow: 'auto' }}>
+                  {JSON.stringify(recentActivity?.slice(0, 3) || 'Нет данных', null, 2)}
+                </pre>
+              </div>
+              <div className="col-md-4">
+                <h6>Проекты:</h6>
+                <pre className="bg-light p-2 small" style={{ maxHeight: '200px', overflow: 'auto' }}>
+                  {JSON.stringify(projects?.slice(0, 3) || 'Нет данных', null, 2)}
+                </pre>
+              </div>
+            </div>
+            <div className="mt-3">
+              <Button 
+                variant="outline-info" 
+                size="sm" 
+                onClick={() => {
+                  console.log('📊 Данные дашборда:', {
+                    taskStats,
+                    recentActivity,
+                    projects,
+                    user
+                  });
+                }}
+              >
+                Вывести в консоль
+              </Button>
+              <Button 
+                variant="outline-info" 
+                size="sm" 
+                className="ms-2"
+                onClick={handleRefresh}
+              >
+                Обновить данные
+              </Button>
+            </div>
+          </Card.Body>
+        </Card>
+      )}
     </Container>
   );
 };

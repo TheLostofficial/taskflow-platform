@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Modal, Button, Form, Row, Col, Badge, Alert, 
   Spinner, ButtonGroup, InputGroup, 
@@ -6,10 +6,11 @@ import {
   Dropdown
 } from 'react-bootstrap';
 import { useSelector, useDispatch } from 'react-redux';
-import { updateTask, deleteTask } from '../../store/slices/tasksSlice';
+import { updateTask, deleteTask, updateChecklist } from '../../store/slices/tasksSlice';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import TaskComments from './TaskComments';
+import websocketService from '../../services/websocket';
 
 const TaskDetailModal = ({ show, onHide, task, project }) => {
   const dispatch = useDispatch();
@@ -22,9 +23,61 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
   const [error, setError] = useState(null);
   const [checklistItems, setChecklistItems] = useState([]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
+  const [checklistSaving, setChecklistSaving] = useState(false);
 
+  // Подписка на WebSocket события
+  useEffect(() => {
+    if (!task?.project || !websocketService || !websocketService.isConnected) return;
+
+    console.log('📡 [MODAL] Подписка на WebSocket события для задачи:', task._id);
+    
+    // Подписываемся на проект и задачу
+    websocketService.subscribeToProject(task.project);
+    websocketService.subscribeToTask(task._id);
+
+    // Обработчики WebSocket событий
+    const handleTaskUpdated = (data) => {
+      console.log('📡 [MODAL] Получено событие taskUpdated:', data);
+      if (data.task._id === task._id) {
+        setTaskData(prev => ({ ...prev, ...data.task }));
+      }
+    };
+
+    const handleChecklistUpdated = (data) => {
+      console.log('📡 [MODAL] Получено событие checklistUpdated:', data);
+      if (data.taskId === task._id) {
+        setChecklistItems(data.checklist || []);
+      }
+    };
+
+    const handleCommentAdded = (data) => {
+      console.log('📡 [MODAL] Получено событие commentAdded:', data);
+      if (data.taskId === task._id) {
+        // Обновляем список комментариев
+        setTaskData(prev => ({
+          ...prev,
+          comments: [...(prev.comments || []), data.comment]
+        }));
+      }
+    };
+
+    // Подписываемся на события
+    websocketService.on('taskUpdated', handleTaskUpdated);
+    websocketService.on('checklistUpdated', handleChecklistUpdated);
+    websocketService.on('commentAdded', handleCommentAdded);
+
+    return () => {
+      console.log('📡 [MODAL] Отписка от WebSocket событий');
+      websocketService.off('taskUpdated', handleTaskUpdated);
+      websocketService.off('checklistUpdated', handleChecklistUpdated);
+      websocketService.off('commentAdded', handleCommentAdded);
+    };
+  }, [task?._id, task?.project]);
+
+  // Инициализация данных задачи
   useEffect(() => {
     if (task) {
+      console.log('📋 [MODAL] Инициализация данных задачи:', task._id);
       setTaskData(task);
       setChecklistItems(task.checklist || []);
       
@@ -34,11 +87,43 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
       }
     } else {
       setTaskData(null);
+      setChecklistItems([]);
     }
+    
     setEditMode(false);
     setError(null);
     setActiveTab('details');
+    setNewChecklistItem('');
   }, [task]);
+
+  // Сохранение чеклиста
+  const saveChecklist = useCallback(async (updatedChecklist) => {
+    if (!taskData?._id || checklistSaving) return;
+
+    setChecklistSaving(true);
+    try {
+      console.log('💾 [MODAL] Сохранение чеклиста:', updatedChecklist);
+      await dispatch(updateChecklist({
+        taskId: taskData._id,
+        checklist: updatedChecklist
+      })).unwrap();
+      
+      // Обновляем локальное состояние
+      setTaskData(prev => ({ ...prev, checklist: updatedChecklist }));
+      console.log('✅ [MODAL] Чеклист успешно сохранен');
+    } catch (error) {
+      console.error('❌ [MODAL] Ошибка сохранения чеклиста:', error);
+      setError('Ошибка сохранения чеклиста: ' + (error.message || 'Неизвестная ошибка'));
+    } finally {
+      setChecklistSaving(false);
+    }
+  }, [taskData?._id, dispatch, checklistSaving]);
+
+  // Обновление чеклиста
+  const handleUpdateChecklist = useCallback(async (updatedChecklist) => {
+    setChecklistItems(updatedChecklist);
+    await saveChecklist(updatedChecklist);
+  }, [saveChecklist]);
 
   if (!show) return null;
 
@@ -63,10 +148,10 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
   }
 
   const isCreator = taskData.creator?._id === user?._id;
-  const isOwner = project.owner?._id === user?._id;
-  const isAdmin = project.members?.some(member => 
+  const isOwner = project?.owner?._id === user?._id;
+  const isAdmin = project?.members?.some(member => 
     member.user?._id === user?._id && member.role === 'admin'
-  );
+  ) || false;
   const canEdit = isCreator || isOwner || isAdmin;
   const isAssignee = taskData.assignee?._id === user?._id;
 
@@ -84,7 +169,8 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
           priority: taskData.priority,
           assignee: taskData.assignee?._id || null,
           dueDate: taskData.dueDate || null,
-          labels: taskData.labels || []
+          labels: taskData.labels || [],
+          checklist: checklistItems // Включаем чеклист в обновление
         }
       })).unwrap();
       setEditMode(false);
@@ -106,7 +192,7 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
     }
   };
 
-  const handleAddChecklistItem = () => {
+  const handleAddChecklistItem = async () => {
     if (!newChecklistItem.trim()) return;
     
     const newItem = {
@@ -116,22 +202,23 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
       createdAt: new Date()
     };
     
-    setChecklistItems([...checklistItems, newItem]);
+    const updatedChecklist = [...checklistItems, newItem];
+    await handleUpdateChecklist(updatedChecklist);
     setNewChecklistItem('');
   };
 
-  const handleToggleChecklistItem = (itemId) => {
-    setChecklistItems(items =>
-      items.map(item =>
-        item._id === itemId
-          ? { ...item, completed: !item.completed }
-          : item
-      )
+  const handleToggleChecklistItem = async (itemId) => {
+    const updatedChecklist = checklistItems.map(item =>
+      item._id === itemId
+        ? { ...item, completed: !item.completed }
+        : item
     );
+    await handleUpdateChecklist(updatedChecklist);
   };
 
-  const handleRemoveChecklistItem = (itemId) => {
-    setChecklistItems(items => items.filter(item => item._id !== itemId));
+  const handleRemoveChecklistItem = async (itemId) => {
+    const updatedChecklist = checklistItems.filter(item => item._id !== itemId);
+    await handleUpdateChecklist(updatedChecklist);
   };
 
   const getPriorityVariant = (priority) => {
@@ -169,13 +256,52 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
     new Date(taskData.dueDate) < new Date() && 
     taskData.status !== 'Done';
 
-  const columns = project.settings?.columns || ['To Do', 'In Progress', 'Done'];
-  const members = project.members || [];
+  const columns = project?.settings?.columns || ['To Do', 'In Progress', 'Done'];
+  const members = project?.members || [];
 
   const completedChecklistItems = checklistItems.filter(item => item.completed).length;
   const checklistProgress = checklistItems.length > 0 
     ? (completedChecklistItems / checklistItems.length) * 100 
     : 0;
+
+  // Форматирование истории активности
+  const formatHistory = (historyItem) => {
+    if (!historyItem) return null;
+    
+    const getActionIcon = (action) => {
+      switch (action) {
+        case 'created': return '🆕';
+        case 'updated': return '✏️';
+        case 'status_changed': return '🔄';
+        case 'assigned': return '👤';
+        case 'commented': return '💬';
+        case 'checklist_updated': return '✅';
+        case 'attachment_added': return '📎';
+        default: return '📝';
+      }
+    };
+    
+    const getActionText = (action) => {
+      switch (action) {
+        case 'created': return 'Создал задачу';
+        case 'updated': return 'Обновил задачу';
+        case 'status_changed': return 'Изменил статус';
+        case 'assigned': return 'Назначил исполнителя';
+        case 'commented': return 'Добавил комментарий';
+        case 'checklist_updated': return 'Обновил чеклист';
+        case 'attachment_added': return 'Добавил вложение';
+        default: return 'Выполнил действие';
+      }
+    };
+
+    return {
+      icon: getActionIcon(historyItem.action),
+      text: getActionText(historyItem.action),
+      user: historyItem.user?.name || 'Неизвестный',
+      details: historyItem.details || '',
+      timestamp: historyItem.timestamp || historyItem.createdAt
+    };
+  };
 
   return (
     <Modal show={show} onHide={onHide} size="xl" backdrop="static">
@@ -302,8 +428,8 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
                           >
                             <option value="">Не назначен</option>
                             {members.map(member => (
-                              <option key={member.user._id} value={member.user._id}>
-                                {member.user.name}
+                              <option key={member.user?._id} value={member.user?._id}>
+                                {member.user?.name}
                               </option>
                             ))}
                           </Form.Select>
@@ -401,20 +527,29 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
                       </div>
                     </div>
                     
+                    {/* Чеклист */}
                     <div className="mb-3">
                       <div className="d-flex justify-content-between align-items-center mb-2">
                         <strong className="text-muted">Чеклист</strong>
-                        <small>
-                          {completedChecklistItems}/{checklistItems.length}
-                        </small>
+                        <div className="d-flex align-items-center">
+                          <small>
+                            {completedChecklistItems}/{checklistItems.length}
+                          </small>
+                          {checklistSaving && (
+                            <Spinner animation="border" size="sm" className="ms-2" />
+                          )}
+                        </div>
                       </div>
+                      
                       {checklistItems.length > 0 && (
                         <ProgressBar 
                           now={checklistProgress} 
                           label={`${checklistProgress.toFixed(0)}%`}
                           className="mb-2"
+                          variant={checklistProgress === 100 ? 'success' : 'primary'}
                         />
                       )}
+                      
                       <div className="mb-2">
                         <InputGroup size="sm">
                           <Form.Control
@@ -422,15 +557,22 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
                             onChange={(e) => setNewChecklistItem(e.target.value)}
                             placeholder="Добавить пункт чеклиста..."
                             onKeyPress={(e) => e.key === 'Enter' && handleAddChecklistItem()}
+                            disabled={checklistSaving}
                           />
                           <Button 
                             variant="outline-secondary"
                             onClick={handleAddChecklistItem}
+                            disabled={!newChecklistItem.trim() || checklistSaving}
                           >
-                            <i className="bi bi-plus"></i>
+                            {checklistSaving ? (
+                              <Spinner size="sm" />
+                            ) : (
+                              <i className="bi bi-plus"></i>
+                            )}
                           </Button>
                         </InputGroup>
                       </div>
+                      
                       <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
                         {checklistItems.map((item) => (
                           <div key={item._id} className="d-flex align-items-center mb-2">
@@ -439,11 +581,13 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
                               checked={item.completed}
                               onChange={() => handleToggleChecklistItem(item._id)}
                               className="me-2"
+                              disabled={checklistSaving}
                             />
                             <span 
                               style={{
                                 textDecoration: item.completed ? 'line-through' : 'none',
-                                flex: 1
+                                flex: 1,
+                                color: item.completed ? '#6c757d' : 'inherit'
                               }}
                             >
                               {item.text}
@@ -453,6 +597,7 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
                               size="sm"
                               onClick={() => handleRemoveChecklistItem(item._id)}
                               className="text-danger p-0 ms-2"
+                              disabled={checklistSaving}
                             >
                               <i className="bi bi-x"></i>
                             </Button>
@@ -473,22 +618,6 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
                         </div>
                       </div>
                     )}
-                    
-                    {(taskData.estimatedHours || taskData.actualHours) && (
-                      <div className="mb-3">
-                        <strong className="text-muted d-block mb-2">Время</strong>
-                        <div className="small">
-                          <div className="d-flex justify-content-between">
-                            <span>Оценка:</span>
-                            <span>{taskData.estimatedHours || 0} ч</span>
-                          </div>
-                          <div className="d-flex justify-content-between">
-                            <span>Затрачено:</span>
-                            <span>{taskData.actualHours || 0} ч</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </Card.Body>
                 </Card>
               </Col>
@@ -502,57 +631,40 @@ const TaskDetailModal = ({ show, onHide, task, project }) => {
             />
           </Tab>
           
-          <Tab eventKey="activity" title="Активность">
+          <Tab eventKey="activity" title="История">
             <Card>
               <Card.Body>
                 <h6>История активности</h6>
-                {taskData.activityLog && taskData.activityLog.length > 0 ? (
+                {taskData.history && taskData.history.length > 0 ? (
                   <ListGroup variant="flush">
-                    {[...(taskData.activityLog || [])]
-                      .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
-                      .map((log, index) => (
-                      <ListGroup.Item key={index}>
-                        <div className="d-flex align-items-center">
-                          <div className="me-3">
-                            {log.type === 'created' && '🆕'}
-                            {log.type === 'updated' && '✏️'}
-                            {log.type === 'status_changed' && '🔄'}
-                            {log.type === 'assigned' && '👤'}
-                            {log.type === 'commented' && '💬'}
-                            {log.type === 'attachment_added' && '📎'}
-                          </div>
-                          <div className="flex-grow-1">
-                            <div>
-                              {log.type === 'status_changed' && (
-                                <>
-                                  <strong>Статус изменен</strong> с "{log.details?.oldValue || 'Неизвестно'}" на "{log.details?.newValue || 'Неизвестно'}"
-                                </>
-                              )}
-                              {log.type === 'assigned' && (
-                                <>
-                                  <strong>Исполнитель изменен</strong>
-                                </>
-                              )}
-                              {log.type === 'created' && (
-                                <>
-                                  <strong>Задача создана</strong>
-                                </>
-                              )}
-                              {log.type === 'commented' && (
-                                <>
-                                  <strong>Добавлен комментарий</strong>
-                                </>
-                              )}
+                    {[...taskData.history]
+                      .sort((a, b) => new Date(b.timestamp || b.createdAt) - new Date(a.timestamp || a.createdAt))
+                      .map((historyItem, index) => {
+                        const formatted = formatHistory(historyItem);
+                        return (
+                          <ListGroup.Item key={index}>
+                            <div className="d-flex align-items-start">
+                              <div className="me-3" style={{ fontSize: '20px' }}>
+                                {formatted.icon}
+                              </div>
+                              <div className="flex-grow-1">
+                                <div>
+                                  <strong>{formatted.user}</strong> {formatted.text}
+                                  {formatted.details && (
+                                    <div className="text-muted small mt-1">
+                                      {formatted.details}
+                                    </div>
+                                  )}
+                                </div>
+                                <small className="text-muted">
+                                  {format(new Date(formatted.timestamp), 'dd MMM yyyy HH:mm', { locale: ru })}
+                                </small>
+                              </div>
                             </div>
-                            <small className="text-muted">
-                              {log.timestamp ? 
-                                format(new Date(log.timestamp), 'dd MMM yyyy HH:mm', { locale: ru }) : 
-                                'Неизвестно'}
-                            </small>
-                          </div>
-                        </div>
-                      </ListGroup.Item>
-                    ))}
+                          </ListGroup.Item>
+                        );
+                      })
+                    }
                   </ListGroup>
                 ) : (
                   <div className="text-center text-muted py-4">

@@ -3,26 +3,31 @@ import { Row, Col, Card, ProgressBar, Badge } from 'react-bootstrap';
 import { useSelector } from 'react-redux';
 
 const ProjectOverview = ({ project }) => {
-  const { items: tasks } = useSelector(state => state.tasks);
+  const { items: tasks = [] } = useSelector(state => state.tasks || {});
+  
+  // Защита от undefined project
+  if (!project) {
+    return (
+      <div className="text-center py-5">
+        <p>Проект не загружен</p>
+      </div>
+    );
+  }
+
+  // Безопасные значения по умолчанию
+  const projectTasks = tasks.filter(task => task.projectId === project._id) || [];
+  const projectMembers = project.members || [];
+  const projectSettings = project.settings || {};
+  const columns = projectSettings.columns || ['To Do', 'In Progress', 'Done'];
   
   const calculateStats = () => {
-    if (!tasks || tasks.length === 0) {
-      return {
-        totalTasks: 0,
-        completedTasks: 0,
-        inProgressTasks: 0,
-        overdueTasks: 0,
-        todoTasks: 0
-      };
-    }
-
     const now = new Date();
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(task => task.status === 'Done' || task.status === 'Completed').length;
-    const inProgressTasks = tasks.filter(task => task.status === 'In Progress').length;
-    const todoTasks = tasks.filter(task => task.status === 'To Do').length;
+    const totalTasks = projectTasks.length;
+    const completedTasks = projectTasks.filter(task => task.status === 'Done' || task.status === 'Completed').length;
+    const inProgressTasks = projectTasks.filter(task => task.status === 'In Progress').length;
+    const todoTasks = projectTasks.filter(task => task.status === 'To Do').length;
     
-    const overdueTasks = tasks.filter(task => {
+    const overdueTasks = projectTasks.filter(task => {
       if (!task.dueDate) return false;
       const dueDate = new Date(task.dueDate);
       return dueDate < now && task.status !== 'Done' && task.status !== 'Completed';
@@ -54,16 +59,16 @@ const ProjectOverview = ({ project }) => {
   };
 
   const getStatusDistribution = () => {
-    if (!tasks || tasks.length === 0) {
+    if (projectTasks.length === 0) {
       return [];
     }
 
     const statusCounts = {};
-    project.settings.columns.forEach(column => {
-      statusCounts[column] = tasks.filter(task => task.status === column).length;
+    columns.forEach(column => {
+      statusCounts[column] = projectTasks.filter(task => task.status === column).length;
     });
 
-    return project.settings.columns.map(column => ({
+    return columns.map(column => ({
       name: column,
       count: statusCounts[column] || 0,
       percentage: stats.totalTasks > 0 ? Math.round((statusCounts[column] / stats.totalTasks) * 100) : 0
@@ -73,7 +78,7 @@ const ProjectOverview = ({ project }) => {
   const statusDistribution = getStatusDistribution();
 
   const getPriorityDistribution = () => {
-    if (!tasks || tasks.length === 0) {
+    if (projectTasks.length === 0) {
       return [];
     }
 
@@ -84,7 +89,7 @@ const ProjectOverview = ({ project }) => {
       low: 0
     };
 
-    tasks.forEach(task => {
+    projectTasks.forEach(task => {
       if (priorityCounts[task.priority] !== undefined) {
         priorityCounts[task.priority]++;
       }
@@ -186,28 +191,28 @@ const ProjectOverview = ({ project }) => {
         <Col md={4}>
           <Card className="h-100">
             <Card.Header>
-              <h5 className="mb-0">Участники ({project.members.length})</h5>
+              <h5 className="mb-0">Участники ({projectMembers.length})</h5>
             </Card.Header>
             <Card.Body>
-              {project.members.slice(0, 5).map((member, index) => (
-                <div key={member.user._id} className="d-flex align-items-center mb-2">
+              {projectMembers.slice(0, 5).map((member, index) => (
+                <div key={member.user?._id || index} className="d-flex align-items-center mb-2">
                   <div 
                     className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2"
                     style={{ width: '32px', height: '32px', fontSize: '14px' }}
                   >
-                    {member.user.name.charAt(0).toUpperCase()}
+                    {member.user?.name?.charAt(0)?.toUpperCase() || '?'}
                   </div>
                   <div className="flex-grow-1">
-                    <div className="fw-medium">{member.user.name}</div>
+                    <div className="fw-medium">{member.user?.name || 'Неизвестный'}</div>
                     <Badge bg="outline-secondary" text="dark" className="small">
                       {getMemberRole(member)}
                     </Badge>
                   </div>
                 </div>
               ))}
-              {project.members.length > 5 && (
+              {projectMembers.length > 5 && (
                 <div className="text-center text-muted small">
-                  и еще {project.members.length - 5} участников...
+                  и еще {projectMembers.length - 5} участников...
                 </div>
               )}
             </Card.Body>
@@ -242,26 +247,27 @@ const ProjectOverview = ({ project }) => {
                 <tbody>
                   <tr>
                     <td><strong>Шаблон:</strong></td>
-                    <td className="text-capitalize">{project.settings.template}</td>
+                    <td className="text-capitalize">{projectSettings.template || 'Не указан'}</td>
                   </tr>
                   <tr>
                     <td><strong>Статус:</strong></td>
                     <td className="text-capitalize">
                       {project.status === 'active' ? 'активный' : 
-                       project.status === 'archived' ? 'архивный' : 'завершенный'}
+                       project.status === 'archived' ? 'архивный' : 
+                       project.status === 'completed' ? 'завершенный' : 'неизвестно'}
                     </td>
                   </tr>
                   <tr>
                     <td><strong>Видимость:</strong></td>
-                    <td>{project.settings.isPublic ? 'Публичный' : 'Приватный'}</td>
+                    <td>{projectSettings.isPublic ? 'Публичный' : 'Приватный'}</td>
                   </tr>
                   <tr>
                     <td><strong>Дата создания:</strong></td>
-                    <td>{new Date(project.createdAt).toLocaleDateString('ru-RU')}</td>
+                    <td>{project.createdAt ? new Date(project.createdAt).toLocaleDateString('ru-RU') : 'Неизвестно'}</td>
                   </tr>
                   <tr>
                     <td><strong>Последнее обновление:</strong></td>
-                    <td>{new Date(project.updatedAt).toLocaleDateString('ru-RU')}</td>
+                    <td>{project.updatedAt ? new Date(project.updatedAt).toLocaleDateString('ru-RU') : 'Неизвестно'}</td>
                   </tr>
                 </tbody>
               </table>
@@ -276,10 +282,10 @@ const ProjectOverview = ({ project }) => {
               <h5 className="mb-0">Колонки проекта</h5>
             </Card.Header>
             <Card.Body>
-              {project.settings.columns && project.settings.columns.length > 0 ? (
+              {columns && columns.length > 0 ? (
                 <div className="d-flex flex-wrap gap-2">
-                  {project.settings.columns.map((column, index) => {
-                    const taskCount = tasks.filter(task => task.status === column).length;
+                  {columns.map((column, index) => {
+                    const taskCount = projectTasks.filter(task => task.status === column).length;
                     return (
                       <div key={index} className="d-flex align-items-center mb-2 w-100">
                         <Badge bg="outline-primary" text="dark" className="fs-6 p-2 flex-grow-1">

@@ -1,0 +1,86 @@
+/* ProjectTabs.css */
+.project-tabs-container {
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.project-tabs .nav-tabs {
+  border-bottom: 2px solid #dee2e6;
+}
+
+.project-tabs .nav-link {
+  color: #6c757d;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.project-tabs .nav-link:hover {
+  color: #4361ee;
+  background-color: rgba(67, 97, 238, 0.05);
+}
+
+.project-tabs .nav-link.active {
+  color: #4361ee;
+  background-color: transparent;
+  border: none;
+}
+
+.project-tabs .nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: #4361ee;
+  border-radius: 3px 3px 0 0;
+}
+
+.project-tabs .nav-link i {
+  margin-right: 8px;
+  font-size: 1.1rem;
+}
+
+.tab-content {
+  padding: 20px 0;
+}
+
+.tab-pane {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Стили для бейджей на вкладках */
+.tab-badge {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+@media (max-width: 768px) {
+  .project-tabs .nav-link {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+  }
+  
+  .project-tabs .nav-link i {
+    font-size: 1rem;
+    margin-right: 5px;
+  }
+}

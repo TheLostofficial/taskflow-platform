@@ -4,6 +4,7 @@ import ProjectOverview from './ProjectOverview';
 import TaskListWrapper from './TaskListWrapper';
 import ProjectMembers from './ProjectMembers';
 import ProjectSettings from './ProjectSettings';
+import './ProjectTabs.css';
 
 const ProjectTabs = ({ activeTab, onSelect, project, user }) => {
   console.log('🔍 ProjectTabs:', { 
@@ -12,6 +13,14 @@ const ProjectTabs = ({ activeTab, onSelect, project, user }) => {
     userId: user?._id,
     isOwner: project?.owner?._id === user?._id
   });
+
+  if (!project) {
+    return (
+      <div className="alert alert-warning">
+        Проект не загружен
+      </div>
+    );
+  }
 
   const isOwner = project?.owner?._id === user?._id;
   
@@ -78,7 +87,12 @@ const ProjectTabs = ({ activeTab, onSelect, project, user }) => {
           <Nav variant="tabs" activeKey={activeTab} onSelect={onSelect}>
             {visibleTabs.map(tab => (
               <Nav.Item key={tab.key}>
-                <Nav.Link eventKey={tab.key}>{tab.title}</Nav.Link>
+                <Nav.Link eventKey={tab.key}>
+                  {tab.title}
+                  {tab.key === 'tasks' && project.taskCount > 0 && (
+                    <span className="badge bg-secondary ms-2">{project.taskCount}</span>
+                  )}
+                </Nav.Link>
               </Nav.Item>
             ))}
           </Nav>

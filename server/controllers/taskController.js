@@ -2,6 +2,46 @@ import Task from '../models/Task.js';
 import Project from '../models/Project.js';
 import path from 'path';
 import fs from 'fs';
+import multer from 'multer';
+
+// Настройка multer для загрузки файлов
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadPath = path.join(process.cwd(), 'uploads', 'comments');
+    // Создаем папку, если она не существует
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'application/pdf',
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain',
+      'application/zip', 'application/x-rar-compressed'
+    ];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Недопустимый тип файла'), false);
+    }
+  }
+});
 
 // Вспомогательная функция для записи истории
 const addHistory = (task, userId, action, details, oldValue, newValue) => {
@@ -207,7 +247,7 @@ export const updateTask = async (req, res) => {
         const newValue = updateData[field];
         
         if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
-          // Добавляем запись в историю для измененных полей
+          // Добавляем запись в истории для измененных полей
           switch (field) {
             case 'title':
               addHistory(task, req.user._id, 'updated', `Название изменено`, oldValue, newValue);
@@ -315,18 +355,20 @@ export const deleteTask = async (req, res) => {
   }
 };
 
+// Middleware для загрузки файлов
+export const uploadFiles = upload.array('attachments');
+
 export const addComment = async (req, res) => {
   try {
     const { taskId } = req.params;
     const content = req.body.content;
     const mentions = req.body.mentions || [];
-    let attachments = [];
-
-    console.log(`💬 [CONTROLLER] Добавление комментария к задаче ${taskId}:`, { content, mentions });
-
-    if (!content || !content.trim()) {
-      return res.status(400).json({ message: 'Comment content is required' });
-    }
+    
+    console.log(`💬 [CONTROLLER] Добавление комментария к задаче ${taskId}:`, { 
+      content, 
+      mentions,
+      files: req.files 
+    });
 
     const task = await Task.findById(taskId);
 
@@ -352,20 +394,41 @@ export const addComment = async (req, res) => {
       return res.status(403).json({ message: 'No access to this task' });
     }
 
-    // Создаем новый комментарий
-    const newComment = {
+    // Проверяем наличие контента или файлов
+    const hasContent = content && content.trim() !== '';
+    const hasFiles = req.files && req.files.length > 0;
+    
+    if (!hasContent && !hasFiles) {
+      console.log(`❌ [CONTROLLER] Комментарий без контента и файлов`);
+      return res.status(400).json({ message: 'Comment content is required or attach a file' });
+    }
+
+    // Подготавливаем данные комментария
+    const commentData = {
       user: req.user._id,
-      content: content.trim(),
+      content: content ? content.trim() : '',
       createdAt: new Date(),
-      attachments: attachments
+      attachments: []
     };
+
+    // Обработка файлов
+    if (req.files && req.files.length > 0) {
+      commentData.attachments = req.files.map(file => ({
+        filename: file.filename,
+        originalName: file.originalname,
+        path: file.path,
+        size: file.size,
+        uploadedAt: new Date()
+      }));
+      console.log(`📎 [CONTROLLER] Прикреплены файлы:`, commentData.attachments);
+    }
 
     // Добавляем комментарий к задаче
     task.comments = task.comments || [];
-    task.comments.push(newComment);
+    task.comments.push(commentData);
 
     // Добавляем запись в историю
-    addHistory(task, req.user._id, 'commented', `Добавлен комментарий`, null, content.substring(0, 100));
+    addHistory(task, req.user._id, 'commented', `Добавлен комментарий`, null, content ? content.substring(0, 100) : 'с файлом');
 
     await task.save();
 
@@ -502,6 +565,17 @@ export const deleteComment = async (req, res) => {
     
     if (!isCommentAuthor && !isTaskOwner) {
       return res.status(403).json({ message: 'Not authorized to delete this comment' });
+    }
+
+    // Удаляем файлы вложений, если есть
+    const comment = task.comments[commentIndex];
+    if (comment.attachments && comment.attachments.length > 0) {
+      comment.attachments.forEach(attachment => {
+        const filePath = path.join(process.cwd(), attachment.path);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      });
     }
 
     // Удаляем комментарий
@@ -762,9 +836,14 @@ export const getTaskComments = async (req, res) => {
       return res.status(403).json({ message: 'No access to this task' });
     }
 
+    // Сортируем комментарии по дате (новые сверху)
+    const sortedComments = task.comments.sort((a, b) => 
+      new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
     res.json({
       message: 'Task comments fetched successfully',
-      comments: task.comments || []
+      comments: sortedComments || []
     });
   } catch (error) {
     console.error('❌ [CONTROLLER] Get task comments error:', error);

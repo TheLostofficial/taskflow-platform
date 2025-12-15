@@ -2,10 +2,11 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Row, Col, Card, Button, Badge, Form, Spinner, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { useDispatch, useSelector } from 'react-redux';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
-import { createTask, updateTaskStatus, deleteTask } from '../../store/slices/tasksSlice';
-import TaskDetailModal from './TaskDetailModal';
-import TaskFilters from './TaskFilters';
-import exportService from '../../services/exportService';
+import { createTask, updateTaskStatus, deleteTask } from '../../store/slices/tasksSlice'; // Исправлено с ../ на ../
+import TaskDetailModal from './TaskDetailModal'; // Исправлено с ../components/projects/ на ./
+import TaskFilters from './TaskFilters'; // Исправлено с ../components/projects/ на ./
+// import exportService from '../../services/exportService'; // Закомментировано пока нет файла
+import './TaskList.css';
 
 const TaskList = ({ project, canEdit }) => {
   const dispatch = useDispatch();
@@ -23,34 +24,40 @@ const TaskList = ({ project, canEdit }) => {
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
-    status: project.settings?.columns?.[0] || 'To Do',
+    status: project?.settings?.columns?.[0] || 'To Do',
     priority: 'medium'
   });
 
   // Фильтруем задачи только для текущего проекта
   const projectTasks = useMemo(() => {
-    if (!tasks || !Array.isArray(tasks)) return [];
+    if (!tasks || !Array.isArray(tasks) || !project?._id) return [];
+    
     return tasks.filter(task => {
-      const taskProjectId = task.project?._id || task.project;
+      // Проверяем все возможные форматы хранения ID проекта в задаче
+      const taskProjectId = 
+        task.project?._id ||      // если project - объект
+        task.project ||           // если project - строка ID
+        task.projectId;           // если используется поле projectId
+        
       return taskProjectId === project._id;
     });
-  }, [tasks, project._id]);
+  }, [tasks, project?._id]);
 
   const handleCreateTask = async (e) => {
     e.preventDefault();
-    if (!newTask.title.trim() || !user?._id) return;
+    if (!newTask.title.trim() || !user?._id || !project?._id) return;
 
     try {
       await dispatch(createTask({
         ...newTask,
-        project: project._id,
+        project: project._id,     // отправляем ID проекта
         creator: user._id
       })).unwrap();
 
       setNewTask({
         title: '',
         description: '',
-        status: project.settings?.columns?.[0] || 'To Do',
+        status: project?.settings?.columns?.[0] || 'To Do',
         priority: 'medium'
       });
       setShowCreateForm(false);
@@ -72,11 +79,12 @@ const TaskList = ({ project, canEdit }) => {
   };
 
   const handleStatusChange = async (taskId, newStatus, newPosition = 0) => {
-    if (!taskId) return;
+    if (!taskId || !project?._id) return;
     
     try {
       await dispatch(updateTaskStatus({
         taskId,
+        projectId: project._id,  // добавляем ID проекта
         status: newStatus,
         position: newPosition
       })).unwrap();
@@ -128,35 +136,39 @@ const TaskList = ({ project, canEdit }) => {
   };
 
   const handleExportCSV = () => {
-    try {
-      if (!projectTasks.length) {
-        alert('Нет задач для экспорта');
-        return;
-      }
-      exportService.exportTasksToCSV(projectTasks, project.name);
-    } catch (error) {
-      console.error('Export error:', error);
-      alert('Ошибка при экспорте в CSV');
-    }
+    alert('Экспорт в CSV временно недоступен');
+    // try {
+    //   if (!projectTasks.length) {
+    //     alert('Нет задач для экспорта');
+    //     return;
+    //   }
+    //   exportService.exportTasksToCSV(projectTasks, project.name);
+    // } catch (error) {
+    //   console.error('Export error:', error);
+    //   alert('Ошибка при экспорте в CSV');
+    // }
   };
 
   const handleExportJSON = () => {
-    try {
-      if (!projectTasks.length) {
-        alert('Нет задач для экспорта');
-        return;
-      }
-      exportService.exportTasksToJSON(projectTasks, project.name);
-    } catch (error) {
-      console.error('Export error:', error);
-      alert('Ошибка при экспорте в JSON');
-    }
+    alert('Экспорт в JSON временно недоступен');
+    // try {
+    //   if (!projectTasks.length) {
+    //     alert('Нет задач для экспорта');
+    //     return;
+    //   }
+    //   exportService.exportTasksToJSON(projectTasks, project.name);
+    // } catch (error) {
+    //   console.error('Export error:', error);
+    //   alert('Ошибка при экспорте в JSON');
+    // }
   };
 
   // Группировка задач по статусу
   const tasksByStatus = useMemo(() => {
     const groups = {};
-    const columns = project.settings?.columns || ['To Do', 'In Progress', 'Done'];
+    const columns = project?.settings?.columns || ['To Do', 'In Progress', 'Done'];
+    
+    if (!columns || !Array.isArray(columns)) return groups;
     
     columns.forEach(column => {
       groups[column] = projectTasks
@@ -165,9 +177,17 @@ const TaskList = ({ project, canEdit }) => {
     });
     
     return groups;
-  }, [projectTasks, project.settings?.columns]);
+  }, [projectTasks, project?.settings?.columns]);
 
-  const columns = project.settings?.columns || ['To Do', 'In Progress', 'Done'];
+  const columns = project?.settings?.columns || ['To Do', 'In Progress', 'Done'];
+
+  if (!project?._id) {
+    return (
+      <div className="text-center py-5">
+        <p className="text-muted">Проект не загружен</p>
+      </div>
+    );
+  }
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
@@ -214,7 +234,7 @@ const TaskList = ({ project, canEdit }) => {
         {showFilters && (
           <TaskFilters 
             tasks={projectTasks}
-            projectMembers={project.members}
+            projectMembers={project.members || []}
           />
         )}
 
@@ -346,7 +366,7 @@ const TaskList = ({ project, canEdit }) => {
                                 >
                                   <Card.Body className="p-3">
                                     <div className="d-flex justify-content-between align-items-start mb-2">
-                                      <h6 className="mb-0">{task.title}</h6>
+                                      <h6 className="mb-0">{task.title || 'Без названия'}</h6>
                                       <Badge bg={getPriorityVariant(task.priority)} size="sm">
                                         {getPriorityText(task.priority)}
                                       </Badge>
@@ -436,15 +456,17 @@ const TaskList = ({ project, canEdit }) => {
         )}
 
         {/* Модальное окно деталей задачи */}
-        <TaskDetailModal
-          show={showTaskModal}
-          onHide={() => {
-            setShowTaskModal(false);
-            setSelectedTask(null);
-          }}
-          task={selectedTask}
-          project={project}
-        />
+        {selectedTask && (
+          <TaskDetailModal
+            show={showTaskModal}
+            onHide={() => {
+              setShowTaskModal(false);
+              setSelectedTask(null);
+            }}
+            task={selectedTask}
+            project={project}
+          />
+        )}
       </div>
     </DragDropContext>
   );

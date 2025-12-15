@@ -1,47 +1,72 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Container, Spinner, Alert, Button } from 'react-bootstrap';
 import { useSelector, useDispatch } from 'react-redux';
+import { Container, Spinner, Alert, Button } from 'react-bootstrap';
 import { fetchProjectById, clearCurrentProject } from '../store/slices/projectsSlice';
 import { clearTasks } from '../store/slices/tasksSlice';
 import ProjectHeader from '../components/projects/ProjectHeader';
 import ProjectTabs from '../components/projects/ProjectTabs';
+import ProjectOverview from '../components/projects/ProjectOverview';
+import TaskListWrapper from '../components/projects/TaskListWrapper';
+import ProjectMembers from '../components/projects/ProjectMembers';
+import ProjectSettings from '../components/projects/ProjectSettings';
+import './ProjectDetailPage.css';
 
 const ProjectDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
   
-  const { currentProject, loading, error } = useSelector((state) => state.projects);
-  const { user } = useSelector((state) => state.auth || {});
-  
   const [activeTab, setActiveTab] = useState('overview');
   const [isLoading, setIsLoading] = useState(true);
-
-  const loadProject = useCallback(async () => {
-    if (!id || id === 'undefined') {
-      setIsLoading(false);
-      return;
-    }
-    
-    try {
-      setIsLoading(true);
-      await dispatch(fetchProjectById(id)).unwrap();
-    } catch (error) {
-      console.error('Ошибка загрузки проекта:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [id, dispatch]);
+  
+  const project = useSelector((state) =>
+    state.projects?.currentProject || 
+    state.projects?.projects?.find(p => p._id === id)
+  );
+  
+  const currentUser = useSelector((state) => state.auth?.user);
 
   useEffect(() => {
+    const loadProject = async () => {
+      if (!id) return;
+      
+      setIsLoading(true);
+      try {
+        await dispatch(fetchProjectById(id)).unwrap();
+      } catch (error) {
+        console.error('Error loading project:', error);
+        navigate('/projects');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     loadProject();
-    
+
     return () => {
       dispatch(clearCurrentProject());
       dispatch(clearTasks());
     };
-  }, [loadProject, dispatch]);
+  }, [id, dispatch, navigate]);
+
+  const hasAccess = () => {
+    if (!project || !currentUser) return false;
+    
+    // Если проект публичный, разрешаем доступ
+    if (project.settings?.isPublic) return true;
+    
+    // Если пользователь владелец
+    if (project.owner === currentUser._id || project.owner?._id === currentUser._id) return true;
+    
+    // Если пользователь администратор
+    if (currentUser.role === 'admin') return true;
+    
+    // Если пользователь участник проекта
+    return project.members?.some(
+      member => member.user === currentUser._id || member.user?._id === currentUser._id
+    );
+  };
 
   if (isLoading) {
     return (
@@ -52,51 +77,68 @@ const ProjectDetailPage = () => {
     );
   }
 
-  if (error || !currentProject?._id) {
+  if (!project) {
     return (
-      <Container className="py-5">
-        <Alert variant="danger">
-          <Alert.Heading>Ошибка загрузки проекта</Alert.Heading>
-          <p>
-            {error || 'Проект не найден или у вас нет доступа к нему.'}
-          </p>
-          <hr />
-          <Button variant="primary" onClick={() => navigate('/projects')}>
-            Вернуться к списку проектов
-          </Button>
-        </Alert>
+      <Container className="py-5 text-center">
+        <h3>Проект не найден</h3>
+        <p className="text-muted">Проект с ID {id} не существует или был удален</p>
+        <Button 
+          className="btn btn-primary mt-3"
+          onClick={() => navigate('/projects')}
+        >
+          Вернуться к проектам
+        </Button>
       </Container>
     );
   }
 
-  const project = currentProject;
-  const isMember = project.members?.some(member => member.user?._id === user?._id);
-  const isOwner = project.owner?._id === user?._id;
+  if (!hasAccess()) {
+    return (
+      <Container className="py-5 text-center">
+        <h3>Доступ запрещен</h3>
+        <p>У вас нет прав для просмотра этого проекта.</p>
+        <Button 
+          className="btn btn-primary mt-3"
+          onClick={() => navigate('/projects')}
+        >
+          Вернуться к проектам
+        </Button>
+      </Container>
+    );
+  }
 
-if (!isMember && !isOwner && !project.settings?.isPublic) {
-  // Разрешаем доступ только к обзору для публичных проектов или частичный доступ
-  // Фактическую проверку оставляем в ProjectTabs
-  console.warn('⚠️ Пользователь пытается получить доступ к проекту без прав');
-}
-
-  const handleTabSelect = (tab) => {
-    setActiveTab(tab);
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'overview':
+        return <ProjectOverview project={project} />;
+      case 'tasks':
+        return <TaskListWrapper project={project} canEdit={hasAccess()} />;
+      case 'members':
+        return <ProjectMembers project={project} isOwner={project.owner === currentUser._id} />;
+      case 'settings':
+        return <ProjectSettings project={project} />;
+      default:
+        return <ProjectOverview project={project} />;
+    }
   };
 
   return (
-    <Container className="py-4">
-      <ProjectHeader 
-        project={project} 
-        isOwner={isOwner}
-      />
+    <div className="project-detail-page">
+      <ProjectHeader project={project} />
       
-      <ProjectTabs 
-        activeTab={activeTab} 
-        onSelect={handleTabSelect}
-        project={project}
-        user={user}
-      />
-    </Container>
+      <div className="container-fluid mt-4">
+        <ProjectTabs 
+          activeTab={activeTab}
+          onSelect={setActiveTab}
+          project={project}
+          user={currentUser}
+        />
+        
+        <div className="tab-content mt-4">
+          {renderTabContent()}
+        </div>
+      </div>
+    </div>
   );
 };
 

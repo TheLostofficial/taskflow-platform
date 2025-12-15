@@ -1,31 +1,99 @@
-/* Global Styles */
+/* Bootstrap imports */
+@import 'bootstrap/dist/css/bootstrap.min.css';
+@import 'bootstrap-icons/font/bootstrap-icons.css';
+
+/* Custom variables */
 :root {
   --primary-color: #4361ee;
   --secondary-color: #3f37c9;
   --success-color: #4cc9f0;
   --danger-color: #f72585;
   --warning-color: #f8961e;
+  --info-color: #3a0ca3;
   --light-color: #f8f9fa;
   --dark-color: #212529;
+  --body-bg: #f5f7fb;
+  --card-bg: #ffffff;
+  --border-color: #e6e6e6;
 }
 
-body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #f5f5f5;
+/* Base styles */
+* {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-.App {
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--body-bg);
+  color: #333;
+  line-height: 1.6;
+}
+
+/* App layout */
+.app {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
 .main-content {
-  min-height: calc(100vh - 120px);
-  padding: 20px 0;
+  flex: 1;
+  padding: 1rem 0;
+  background-color: var(--body-bg);
 }
 
-/* Custom Bootstrap overrides */
+/* Container improvements */
+.container {
+  max-width: 1200px;
+}
+
+/* Header styles */
+.navbar {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-brand {
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+/* Footer styles */
+footer {
+  background-color: var(--dark-color);
+  color: white;
+  padding: 2rem 0;
+  margin-top: auto;
+}
+
+/* Card styles */
+.card {
+  border: 1px solid rgba(0, 0, 0, 0.125);
+  border-radius: 0.5rem;
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.card-header {
+  background-color: rgba(0, 0, 0, 0.03);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+/* Button styles */
+.btn {
+  border-radius: 0.375rem;
+  font-weight: 500;
+}
+
 .btn-primary {
   background-color: var(--primary-color);
   border-color: var(--primary-color);
@@ -36,15 +104,240 @@ body {
   border-color: var(--secondary-color);
 }
 
+.btn-outline-primary {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.btn-outline-primary:hover {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+/* Form styles */
+.form-control {
+  border-radius: 0.375rem;
+  border: 1px solid #ced4da;
+}
+
+.form-control:focus {
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.form-label {
+  font-weight: 500;
+}
+
+/* Alert styles */
+.alert {
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+}
+
+/* Loading spinner */
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+/* Badge styles */
+.badge {
+  font-weight: 500;
+  padding: 0.35em 0.65em;
+}
+
+/* Dropdown styles */
+.dropdown-menu {
+  border-radius: 0.375rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
 /* Utility classes */
+.shadow-sm {
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075) !important;
+}
+
+.shadow {
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+.rounded-lg {
+  border-radius: 0.5rem !important;
+}
+
 .cursor-pointer {
   cursor: pointer;
 }
 
-.shadow-custom {
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+/* Text truncation - современный подход без line-clamp */
+.text-truncate-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 3em; /* Примерно 2 строки */
+  line-height: 1.5em;
 }
 
-.min-vh-80 {
-  min-height: 80vh;
+/* Альтернативный метод для многострочного обрезания */
+.multi-line-truncate {
+  position: relative;
+  line-height: 1.4em;
+  max-height: 2.8em;
+  overflow: hidden;
+  padding-right: 1em;
+}
+
+.multi-line-truncate::after {
+  content: '...';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  background: inherit;
+  padding-left: 4px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .container {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+  
+  .main-content {
+    padding: 0.5rem 0;
+  }
+}
+
+/* Custom scrollbar for Webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .main-content {
+    padding: 0 !important;
+  }
+}
+
+/* Task Management Styles */
+.task-management {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.task-priority-low {
+  background-color: #d4edda;
+  color: #155724;
+  border-color: #c3e6cb;
+}
+
+.task-priority-medium {
+  background-color: #fff3cd;
+  color: #856404;
+  border-color: #ffeaa7;
+}
+
+.task-priority-high {
+  background-color: #f8d7da;
+  color: #721c24;
+  border-color: #f5c6cb;
+}
+
+.task-priority-critical {
+  background-color: #343a40;
+  color: white;
+  border-color: #454d55;
+}
+
+.task-status-badge {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+}
+
+.task-card-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+  padding: 0.75rem 1rem;
+}
+
+.task-card-body {
+  padding: 1rem;
+}
+
+.task-meta {
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+.task-meta i {
+  margin-right: 5px;
+}
+
+.task-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.task-avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #4361ee;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+/* Drag and Drop styles */
+.draggable-task {
+  cursor: grab;
+}
+
+.draggable-task:active {
+  cursor: grabbing;
+}
+
+/* Responsive task grid */
+@media (max-width: 768px) {
+  .task-columns {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+  
+  .task-column {
+    min-width: 280px;
+  }
 }

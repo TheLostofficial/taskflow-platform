@@ -1,0 +1,100 @@
+/* TaskList.css - Стили для канбан-доски и карточек задач */
+.task-board {
+  padding: 20px 0;
+}
+
+.kanban-column {
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  height: 100%;
+}
+
+.kanban-column-header {
+  background-color: #e9ecef;
+  border-bottom: 1px solid #dee2e6;
+  padding: 12px 16px;
+  border-radius: 8px 8px 0 0;
+}
+
+.kanban-column-body {
+  padding: 16px;
+  min-height: 500px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.task-card {
+  transition: all 0.2s ease;
+  border-left: 4px solid transparent;
+  margin-bottom: 12px;
+}
+
+.task-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  cursor: pointer;
+}
+
+.task-card-low {
+  border-left-color: #28a745;
+}
+
+.task-card-medium {
+  border-left-color: #ffc107;
+}
+
+.task-card-high {
+  border-left-color: #dc3545;
+}
+
+.task-card-critical {
+  border-left-color: #212529;
+}
+
+.drag-over {
+  background-color: rgba(67, 97, 238, 0.1);
+  border: 2px dashed #4361ee;
+}
+
+.hover-shadow {
+  transition: box-shadow 0.3s ease;
+}
+
+.hover-shadow:hover {
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* Стили для состояния перетаскивания */
+.dragging {
+  opacity: 0.7;
+  transform: rotate(2deg);
+}
+
+/* Стили для пустой колонки */
+.empty-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: #6c757d;
+}
+
+.empty-column i {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .kanban-column {
+    margin-bottom: 20px;
+  }
+  
+  .kanban-column-body {
+    min-height: 300px;
+    max-height: 400px;
+  }
+}

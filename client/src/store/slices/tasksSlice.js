@@ -1,327 +1,151 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { taskService } from '../../services/taskService';
 
-// Вспомогательная функция для логирования
-const log = (type, message, data = null) => {
-  const timestamp = new Date().toISOString();
-  const prefix = type === 'info' ? 'ℹ️' : type === 'error' ? '❌' : type === 'success' ? '✅' : '⚠️';
-  console.log(`${prefix} [${timestamp}] ${message}`);
-  if (data) console.log('   Данные:', data);
-};
-
-// Глобальный кэш для задач
-const taskCache = new Map();
-const TASK_CACHE_DURATION = 30000; // 30 секунд
-
+// Асинхронные действия
 export const fetchProjectTasks = createAsyncThunk(
   'tasks/fetchProjectTasks',
-  async (projectId, { rejectWithValue, getState }) => {
+  async (projectId, { rejectWithValue }) => {
     try {
-      if (!projectId || projectId === 'undefined') {
-        throw new Error('Project ID is required');
-      }
-      
-      log('info', `Загрузка задач для проекта ${projectId}...`);
-      
-      const state = getState();
-      const { lastFetchTime } = state.tasks;
-      
-      // Проверяем кэш
-      const cacheKey = `tasks_${projectId}`;
-      const cached = taskCache.get(cacheKey);
-      
-      if (cached && Date.now() - cached.timestamp < TASK_CACHE_DURATION) {
-        log('info', `Используем кэшированные задачи проекта ${projectId}`);
-        return { projectId, tasks: cached.data };
-      }
-      
-      // Проверяем частоту запросов
-      if (lastFetchTime && Date.now() - lastFetchTime < 5000) {
-        log('info', 'Пропускаем запрос задач (слишком частые запросы)');
-        return { projectId, tasks: state.tasks.items || [] };
-      }
-      
       const response = await taskService.getProjectTasks(projectId);
-      
-      if (!response || !response.data) {
-        throw new Error('Некорректный ответ от сервера');
-      }
-      
-      const data = response.data.tasks || [];
-      
-      // Кэшируем результат
-      taskCache.set(cacheKey, {
-        data,
-        timestamp: Date.now()
-      });
-      
-      log('success', `Задачи проекта ${projectId} успешно загружены`, { 
-        count: data.length,
-        tasks: data.map(t => ({ id: t._id, title: t.title }))
-      });
-      
-      return { projectId, tasks: data };
+      return response.data;
     } catch (error) {
-      log('error', `Ошибка загрузки задач проекта ${projectId}`, {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        url: error.config?.url
-      });
-      
-      // Если сетевой ошибки нет, возвращаем данные из состояния
-      if (error.response) {
-        return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка загрузки задач');
-      } else {
-        // Сетевая ошибка - используем данные из состояния
-        log('info', 'Сетевая ошибка. Используем существующие данные');
-        const state = getState();
-        return { projectId, tasks: state.tasks.items || [] };
-      }
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const fetchTask = createAsyncThunk(
+  'tasks/fetchTask',
+  async (taskId, { rejectWithValue }) => {
+    try {
+      const response = await taskService.getTaskById(taskId);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
     }
   }
 );
 
 export const createTask = createAsyncThunk(
   'tasks/createTask',
-  async (taskData, { rejectWithValue, getState }) => {
+  async (taskData, { rejectWithValue }) => {
     try {
-      if (!taskData.project || !taskData.title) {
-        throw new Error('Project ID and title are required');
-      }
-      
-      log('info', 'Создание новой задачи...', { 
-        title: taskData.title,
-        project: taskData.project 
-      });
-      
       const response = await taskService.createTask(taskData);
-      
-      if (!response || !response.data) {
-        throw new Error('Некорректный ответ от сервера');
-      }
-      
-      const data = {
-        task: response.data.task || response.data,
-        message: response.data.message || 'Задача создана'
-      };
-      
-      // Очищаем кэш задач этого проекта
-      taskCache.delete(`tasks_${taskData.project}`);
-      
-      log('success', 'Задача успешно создана', { 
-        id: data.task._id, 
-        title: data.task.title 
-      });
-      
-      return data;
+      return response.data;
     } catch (error) {
-      log('error', 'Ошибка создания задачи', error);
-      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка создания задачи');
+      return rejectWithValue(error.response?.data || error.message);
     }
   }
 );
 
 export const updateTask = createAsyncThunk(
   'tasks/updateTask',
-  async ({ taskId, taskData }, { rejectWithValue, getState }) => {
+  async ({ taskId, taskData }, { rejectWithValue }) => {
     try {
-      if (!taskId) {
-        throw new Error('Task ID is required');
-      }
-      
-      log('info', `Обновление задачи ${taskId}...`, taskData);
-      
+      console.log('🔄 [REDUX] Обновление задачи:', taskId, taskData);
       const response = await taskService.updateTask(taskId, taskData);
-      
-      if (!response || !response.data) {
-        throw new Error('Некорректный ответ от сервера');
-      }
-      
-      const data = {
-        task: response.data.task || response.data,
-        message: response.data.message || 'Задача обновлена'
-      };
-      
-      // Получаем проект задачи из текущего состояния
-      const state = getState();
-      const task = state.tasks.items.find(t => t._id === taskId);
-      if (task && task.project) {
-        // Очищаем кэш задач этого проекта
-        taskCache.delete(`tasks_${task.project}`);
-      }
-      
-      log('success', `Задача ${taskId} успешно обновлена`);
-      return data;
+      return response.data;
     } catch (error) {
-      log('error', `Ошибка обновления задачи ${taskId}`, error);
-      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка обновления задачи');
+      return rejectWithValue(error.response?.data || error.message);
     }
   }
 );
 
 export const deleteTask = createAsyncThunk(
   'tasks/deleteTask',
-  async (taskId, { rejectWithValue, getState }) => {
+  async (taskId, { rejectWithValue }) => {
     try {
-      if (!taskId) {
-        throw new Error('Task ID is required');
-      }
-      
-      log('info', `Удаление задачи ${taskId}...`);
-      
       await taskService.deleteTask(taskId);
-      
-      // Получаем проект задачи из текущего состояния
-      const state = getState();
-      const task = state.tasks.items.find(t => t._id === taskId);
-      if (task && task.project) {
-        // Очищаем кэш задач этого проекта
-        taskCache.delete(`tasks_${task.project}`);
-      }
-      
-      log('success', `Задача ${taskId} успешно удалена`);
       return { taskId };
     } catch (error) {
-      log('error', `Ошибка удаления задачи ${taskId}`, error);
-      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка удаления задачи');
-    }
-  }
-);
-
-export const getUserTaskStats = createAsyncThunk(
-  'tasks/getUserTaskStats',
-  async (_, { rejectWithValue }) => {
-    try {
-      log('info', 'Загрузка статистики пользователя...');
-      
-      const response = await taskService.getUserTaskStats();
-      
-      if (!response || !response.data) {
-        throw new Error('Некорректный ответ от сервера');
-      }
-      
-      log('success', 'Статистика пользователя загружена');
-      return response.data;
-    } catch (error) {
-      log('error', 'Ошибка загрузки статистики пользователя', error);
-      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка загрузки статистики');
-    }
-  }
-);
-
-export const getProjectStats = createAsyncThunk(
-  'tasks/getProjectStats',
-  async ({ projectId, timeRange = 'month' }, { rejectWithValue }) => {
-    try {
-      if (!projectId) {
-        throw new Error('Project ID is required');
-      }
-      
-      log('info', `Загрузка статистики проекта ${projectId}...`);
-      
-      const response = await taskService.getProjectStats(projectId, timeRange);
-      
-      if (!response || !response.data) {
-        throw new Error('Некорректный ответ от сервера');
-      }
-      
-      log('success', `Статистика проекта ${projectId} загружена`);
-      return response.data;
-    } catch (error) {
-      log('error', `Ошибка загрузки статистики проекта ${projectId}`, error);
-      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка загрузки статистики проекта');
-    }
-  }
-);
-
-export const getRecentActivity = createAsyncThunk(
-  'tasks/getRecentActivity',
-  async (_, { rejectWithValue }) => {
-    try {
-      log('info', 'Загрузка последней активности...');
-      
-      const response = await taskService.getRecentActivity();
-      
-      if (!response || !response.data) {
-        throw new Error('Некорректный ответ от сервера');
-      }
-      
-      log('success', 'Последняя активность загружена');
-      return response.data;
-    } catch (error) {
-      log('error', 'Ошибка загрузки последней активности', error);
-      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка загрузки активности');
-    }
-  }
-);
-
-export const addComment = createAsyncThunk(
-  'tasks/addComment',
-  async ({ taskId, content, mentions = [] }, { rejectWithValue, getState }) => {
-    try {
-      if (!taskId || !content) {
-        throw new Error('Task ID and content are required');
-      }
-      
-      log('info', `Добавление комментария к задаче ${taskId}...`);
-      
-      const response = await taskService.addComment(taskId, { content, mentions });
-      
-      if (!response || !response.data) {
-        throw new Error('Некорректный ответ от сервера');
-      }
-      
-      const data = response.data;
-      
-      // Получаем проект задачи из текущего состояния
-      const state = getState();
-      const task = state.tasks.items.find(t => t._id === taskId);
-      if (task && task.project) {
-        // Очищаем кэш задач этого проекта
-        taskCache.delete(`tasks_${task.project}`);
-      }
-      
-      log('success', `Комментарий к задаче ${taskId} успешно добавлен`);
-      return data;
-    } catch (error) {
-      log('error', `Ошибка добавления комментария к задаче ${taskId}`, error);
-      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка добавления комментария');
+      return rejectWithValue(error.response?.data || error.message);
     }
   }
 );
 
 export const updateTaskStatus = createAsyncThunk(
   'tasks/updateTaskStatus',
-  async ({ taskId, status, position }, { rejectWithValue, getState }) => {
+  async ({ taskId, status, position }, { rejectWithValue }) => {
     try {
-      if (!taskId || !status) {
-        throw new Error('Task ID and status are required');
-      }
-      
-      log('info', `Обновление статуса задачи ${taskId} на ${status}...`);
-      
       const response = await taskService.updateTaskStatus(taskId, { status, position });
-      
-      if (!response || !response.data) {
-        throw new Error('Некорректный ответ от сервера');
-      }
-      
-      const data = response.data;
-      
-      // Получаем проект задачи из текущего состояния
-      const state = getState();
-      const task = state.tasks.items.find(t => t._id === taskId);
-      if (task && task.project) {
-        // Очищаем кэш задач этого проекта
-        taskCache.delete(`tasks_${task.project}`);
-      }
-      
-      log('success', `Статус задачи ${taskId} успешно обновлен на ${status}`);
-      return data;
+      return response.data;
     } catch (error) {
-      log('error', `Ошибка обновления статуса задачи ${taskId}`, error);
-      return rejectWithValue(error.response?.data?.message || error.message || 'Ошибка обновления статуса');
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const updateChecklist = createAsyncThunk(
+  'tasks/updateChecklist',
+  async ({ taskId, checklist }, { rejectWithValue }) => {
+    try {
+      console.log('✅ [REDUX] Обновление чеклиста задачи:', taskId, checklist);
+      const response = await taskService.updateChecklist(taskId, checklist);
+      return { taskId, checklist: response.data };
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const addComment = createAsyncThunk(
+  'tasks/addComment',
+  async ({ taskId, commentData }, { rejectWithValue }) => {
+    try {
+      const response = await taskService.addComment(taskId, commentData);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const updateComment = createAsyncThunk(
+  'tasks/updateComment',
+  async ({ taskId, commentId, content }, { rejectWithValue }) => {
+    try {
+      const response = await taskService.updateComment(taskId, commentId, content);
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+export const deleteComment = createAsyncThunk(
+  'tasks/deleteComment',
+  async ({ taskId, commentId }, { rejectWithValue }) => {
+    try {
+      await taskService.deleteComment(taskId, commentId);
+      return { taskId, commentId };
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+// ✅ ДОБАВЛЯЕМ: Получение статистики пользователя
+export const getUserTaskStats = createAsyncThunk(
+  'tasks/getUserTaskStats',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await taskService.getUserTaskStats();
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
+// ✅ ДОБАВЛЯЕМ: Получение последней активности
+export const getRecentActivity = createAsyncThunk(
+  'tasks/getRecentActivity',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await taskService.getRecentActivity();
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
     }
   }
 );
@@ -329,323 +153,440 @@ export const updateTaskStatus = createAsyncThunk(
 const tasksSlice = createSlice({
   name: 'tasks',
   initialState: {
-    items: [],
-    loading: false,
-    error: null,
-    operationLoading: false,
-    operationError: null,
-    currentProjectId: null,
-    lastFetchTime: null,
+    // Основной список задач
+    tasks: [],
+    currentTask: null,
     
-    taskStats: null,
-    projectStats: null,
-    recentActivity: null,
+    // Статистика и активность (для Dashboard)
+    userStats: null,
+    recentActivity: [],
+    
+    // Флаги загрузки
+    isLoading: false,
+    operationLoading: false,
     statsLoading: false,
+    activityLoading: false,
+    
+    // Ошибки
+    error: null,
     statsError: null,
-    requestCount: 0
+    activityError: null,
+    
+    // Фильтры и сортировка
+    statusFilter: 'all',
+    searchQuery: '',
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+    
+    // Для отслеживания загрузки
+    lastFetchTime: null
   },
   reducers: {
-    clearTasks: (state) => {
-      state.items = [];
-      state.currentProjectId = null;
-      state.error = null;
-      state.operationError = null;
-      state.lastFetchTime = null;
-      log('info', 'Задачи очищены из состояния');
+    // Синхронные редьюсеры
+    setCurrentTask: (state, action) => {
+      state.currentTask = action.payload;
     },
-    clearError: (state) => {
-      state.error = null;
-      state.operationError = null;
-      state.statsError = null;
-      log('info', 'Ошибки очищены из состояния');
+    
+    clearCurrentTask: (state) => {
+      state.currentTask = null;
     },
-    setCurrentProjectId: (state, action) => {
-      state.currentProjectId = action.payload;
-      log('info', `Текущий проект установлен: ${action.payload}`);
+    
+    setStatusFilter: (state, action) => {
+      state.statusFilter = action.payload;
     },
+    
+    setSearchQuery: (state, action) => {
+      state.searchQuery = action.payload;
+    },
+    
+    setSortBy: (state, action) => {
+      state.sortBy = action.payload;
+    },
+    
+    setSortOrder: (state, action) => {
+      state.sortOrder = action.payload;
+    },
+    
+    // ✅ ДОБАВЛЯЕМ: Обновление времени последней загрузки
     updateLastFetchTime: (state) => {
       state.lastFetchTime = Date.now();
     },
     
-    clearStats: (state) => {
-      state.taskStats = null;
-      state.projectStats = null;
-      state.recentActivity = null;
+    // Обработка WebSocket событий
+    handleTaskCreated: (state, action) => {
+      const newTask = action.payload.task;
+      // Добавляем задачу в список, если она относится к текущему проекту
+      if (state.tasks.some(task => task.project === newTask.project)) {
+        state.tasks.push(newTask);
+      }
+    },
+    
+    handleTaskUpdated: (state, action) => {
+      const updatedTask = action.payload.task;
+      const index = state.tasks.findIndex(task => task._id === updatedTask._id);
+      
+      if (index !== -1) {
+        state.tasks[index] = { ...state.tasks[index], ...updatedTask };
+      }
+      
+      if (state.currentTask && state.currentTask._id === updatedTask._id) {
+        state.currentTask = { ...state.currentTask, ...updatedTask };
+      }
+    },
+    
+    handleTaskDeleted: (state, action) => {
+      const taskId = action.payload.taskId;
+      state.tasks = state.tasks.filter(task => task._id !== taskId);
+      
+      if (state.currentTask && state.currentTask._id === taskId) {
+        state.currentTask = null;
+      }
+    },
+    
+    handleChecklistUpdated: (state, action) => {
+      const { taskId, checklist } = action.payload;
+      
+      const taskIndex = state.tasks.findIndex(task => task._id === taskId);
+      if (taskIndex !== -1) {
+        state.tasks[taskIndex].checklist = checklist;
+      }
+      
+      if (state.currentTask && state.currentTask._id === taskId) {
+        state.currentTask.checklist = checklist;
+      }
+    },
+    
+    handleCommentAdded: (state, action) => {
+      const { taskId, comment } = action.payload;
+      
+      const taskIndex = state.tasks.findIndex(task => task._id === taskId);
+      if (taskIndex !== -1) {
+        if (!state.tasks[taskIndex].comments) {
+          state.tasks[taskIndex].comments = [];
+        }
+        state.tasks[taskIndex].comments.push(comment);
+      }
+      
+      if (state.currentTask && state.currentTask._id === taskId) {
+        if (!state.currentTask.comments) {
+          state.currentTask.comments = [];
+        }
+        state.currentTask.comments.push(comment);
+      }
+    },
+    
+    handleCommentUpdated: (state, action) => {
+      const { taskId, comment } = action.payload;
+      
+      const taskIndex = state.tasks.findIndex(task => task._id === taskId);
+      if (taskIndex !== -1 && state.tasks[taskIndex].comments) {
+        const commentIndex = state.tasks[taskIndex].comments.findIndex(c => c._id === comment._id);
+        if (commentIndex !== -1) {
+          state.tasks[taskIndex].comments[commentIndex] = comment;
+        }
+      }
+      
+      if (state.currentTask && state.currentTask._id === taskId && state.currentTask.comments) {
+        const commentIndex = state.currentTask.comments.findIndex(c => c._id === comment._id);
+        if (commentIndex !== -1) {
+          state.currentTask.comments[commentIndex] = comment;
+        }
+      }
+    },
+    
+    handleCommentDeleted: (state, action) => {
+      const { taskId, commentId } = action.payload;
+      
+      const taskIndex = state.tasks.findIndex(task => task._id === taskId);
+      if (taskIndex !== -1 && state.tasks[taskIndex].comments) {
+        state.tasks[taskIndex].comments = state.tasks[taskIndex].comments.filter(c => c._id !== commentId);
+      }
+      
+      if (state.currentTask && state.currentTask._id === taskId && state.currentTask.comments) {
+        state.currentTask.comments = state.currentTask.comments.filter(c => c._id !== commentId);
+      }
+    },
+    
+    clearTasks: (state) => {
+      state.tasks = [];
+      state.currentTask = null;
+      state.error = null;
+    },
+    
+    clearError: (state) => {
+      state.error = null;
       state.statsError = null;
-      log('info', 'Статистика очищена из состояния');
+      state.activityError = null;
     },
     
-    addMockTask: (state, action) => {
-      const mockTask = {
-        _id: Date.now().toString(),
-        title: action.payload.title || 'Тестовая задача',
-        description: action.payload.description || 'Создана в оффлайн режиме',
-        project: action.payload.projectId || state.currentProjectId,
-        creator: { _id: 'mock', name: 'Вы' },
-        status: 'To Do',
-        priority: 'medium',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        comments: []
-      };
-      state.items.push(mockTask);
-      log('info', 'Добавлена тестовая задача', { title: mockTask.title });
-    },
-    
-    clearTasksCache: (state) => {
-      state.items = [];
-      state.currentProjectId = null;
-      state.lastFetchTime = null;
-      state.requestCount = 0;
-      taskCache.clear();
-      log('info', 'Кэш задач очищен');
-    },
-    
-    incrementRequestCount: (state) => {
-      state.requestCount += 1;
-    },
-    
-    resetRequestCount: (state) => {
-      state.requestCount = 0;
+    // ✅ ДОБАВЛЯЕМ: Очистка статистики
+    clearStats: (state) => {
+      state.userStats = null;
+      state.recentActivity = [];
     }
   },
   extraReducers: (builder) => {
     builder
-      // Загрузка задач проекта
+      // Получение задач проекта
       .addCase(fetchProjectTasks.pending, (state) => {
-        state.loading = true;
+        state.isLoading = true;
         state.error = null;
-        state.operationError = null;
-        state.requestCount += 1;
-        log('info', 'Начало загрузки задач проекта...');
       })
       .addCase(fetchProjectTasks.fulfilled, (state, action) => {
-        state.loading = false;
-        state.error = null;
-        state.lastFetchTime = Date.now();
-        
-        const { projectId, tasks } = action.payload;
-        
-        state.currentProjectId = projectId;
-        
-        const validTasks = tasks.filter(task => task && task._id);
-        const tasksMap = new Map();
-        validTasks.forEach(task => {
-          tasksMap.set(task._id, task);
-        });
-        
-        state.items = Array.from(tasksMap.values());
-        log('success', 'Задачи проекта успешно загружены в состояние', { 
-          count: state.items.length,
-          projectId 
-        });
+        state.isLoading = false;
+        state.tasks = action.payload.tasks || [];
       })
       .addCase(fetchProjectTasks.rejected, (state, action) => {
-        state.loading = false;
+        state.isLoading = false;
         state.error = action.payload || 'Ошибка загрузки задач';
-        state.lastFetchTime = Date.now();
-        log('error', 'Ошибка загрузки задач в состояние', action.payload);
+      })
+      
+      // Получение задачи по ID
+      .addCase(fetchTask.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchTask.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        state.currentTask = action.payload.task;
+      })
+      .addCase(fetchTask.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload || 'Ошибка загрузки задачи';
       })
       
       // Создание задачи
       .addCase(createTask.pending, (state) => {
         state.operationLoading = true;
-        state.operationError = null;
-        state.requestCount += 1;
-        log('info', 'Начало создания задачи...');
+        state.error = null;
       })
       .addCase(createTask.fulfilled, (state, action) => {
         state.operationLoading = false;
-        const newTask = action.payload.task;
-        if (newTask && newTask._id) {
-          const exists = state.items.find(task => task._id === newTask._id);
-          if (!exists) {
-            state.items.push(newTask);
-            log('success', 'Задача добавлена в состояние', { id: newTask._id });
-          }
+        if (action.payload.task) {
+          state.tasks.push(action.payload.task);
         }
       })
       .addCase(createTask.rejected, (state, action) => {
         state.operationLoading = false;
-        state.operationError = action.payload || 'Ошибка создания задачи';
-        log('error', 'Ошибка создания задачи в состояние', action.payload);
+        state.error = action.payload || 'Ошибка создания задачи';
       })
       
       // Обновление задачи
       .addCase(updateTask.pending, (state) => {
         state.operationLoading = true;
-        state.operationError = null;
-        state.requestCount += 1;
-        log('info', 'Начало обновления задачи...');
+        state.error = null;
       })
       .addCase(updateTask.fulfilled, (state, action) => {
         state.operationLoading = false;
         const updatedTask = action.payload.task;
-        if (updatedTask && updatedTask._id) {
-          const index = state.items.findIndex(t => t._id === updatedTask._id);
-          if (index !== -1) {
-            state.items[index] = { ...state.items[index], ...updatedTask };
-            log('success', 'Задача обновлена в состоянии', { id: updatedTask._id });
-          } else {
-            // Если задачи не было в списке, добавляем её
-            state.items.push(updatedTask);
-            log('info', 'Задача добавлена в состояние (не найдена при обновлении)', { id: updatedTask._id });
-          }
+        
+        const index = state.tasks.findIndex(task => task._id === updatedTask._id);
+        if (index !== -1) {
+          state.tasks[index] = updatedTask;
+        }
+        
+        if (state.currentTask && state.currentTask._id === updatedTask._id) {
+          state.currentTask = updatedTask;
         }
       })
       .addCase(updateTask.rejected, (state, action) => {
         state.operationLoading = false;
-        state.operationError = action.payload || 'Ошибка обновления задачи';
-        log('error', 'Ошибка обновления задачи в состоянии', action.payload);
+        state.error = action.payload || 'Ошибка обновления задачи';
       })
       
       // Удаление задачи
+      .addCase(deleteTask.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
       .addCase(deleteTask.fulfilled, (state, action) => {
-        const { taskId } = action.payload;
-        if (taskId) {
-          state.items = state.items.filter(t => t._id !== taskId);
-          log('success', 'Задача удалена из состояния', { id: taskId });
+        state.operationLoading = false;
+        state.tasks = state.tasks.filter(task => task._id !== action.payload.taskId);
+        
+        if (state.currentTask && state.currentTask._id === action.payload.taskId) {
+          state.currentTask = null;
         }
       })
       .addCase(deleteTask.rejected, (state, action) => {
-        state.operationError = action.payload || 'Ошибка удаления задачи';
-        log('error', 'Ошибка удаления задачи в состоянии', action.payload);
-      })
-      
-      // Статистика пользователя
-      .addCase(getUserTaskStats.pending, (state) => {
-        state.statsLoading = true;
-        state.statsError = null;
-        state.requestCount += 1;
-        log('info', 'Начало загрузки статистики пользователя...');
-      })
-      .addCase(getUserTaskStats.fulfilled, (state, action) => {
-        state.statsLoading = false;
-        state.taskStats = action.payload.stats;
-        log('success', 'Статистика пользователя загружена в состояние');
-      })
-      .addCase(getUserTaskStats.rejected, (state, action) => {
-        state.statsLoading = false;
-        state.statsError = action.payload || 'Ошибка загрузки статистики';
-        log('error', 'Ошибка загрузки статистики пользователя в состоянии', action.payload);
-      })
-      
-      // Статистика проекта
-      .addCase(getProjectStats.pending, (state) => {
-        state.statsLoading = true;
-        state.statsError = null;
-        state.requestCount += 1;
-        log('info', 'Начало загрузки статистики проекта...');
-      })
-      .addCase(getProjectStats.fulfilled, (state, action) => {
-        state.statsLoading = false;
-        state.projectStats = action.payload.stats;
-        log('success', 'Статистика проекта загружена в состояние');
-      })
-      .addCase(getProjectStats.rejected, (state, action) => {
-        state.statsLoading = false;
-        state.statsError = action.payload || 'Ошибка загрузки статистики проекта';
-        log('error', 'Ошибка загрузки статистики проекта в состоянии', action.payload);
-      })
-      
-      // Последняя активность
-      .addCase(getRecentActivity.pending, (state) => {
-        state.statsLoading = true;
-        state.statsError = null;
-        state.requestCount += 1;
-        log('info', 'Начало загрузки последней активности...');
-      })
-      .addCase(getRecentActivity.fulfilled, (state, action) => {
-        state.statsLoading = false;
-        state.recentActivity = action.payload.activities;
-        log('success', 'Последняя активность загружена в состояние');
-      })
-      .addCase(getRecentActivity.rejected, (state, action) => {
-        state.statsLoading = false;
-        state.statsError = action.payload || 'Ошибка загрузки активности';
-        log('error', 'Ошибка загрузки последней активности в состоянии', action.payload);
-      })
-      
-      // Добавление комментария
-      .addCase(addComment.pending, (state) => {
-        state.operationLoading = true;
-        state.operationError = null;
-        state.requestCount += 1;
-        log('info', 'Начало добавления комментария...');
-      })
-      .addCase(addComment.fulfilled, (state, action) => {
         state.operationLoading = false;
-        const { comment } = action.payload;
-        
-        if (comment && comment.taskId) {
-          const taskIndex = state.items.findIndex(t => t._id === comment.taskId);
-          if (taskIndex !== -1) {
-            if (!state.items[taskIndex].comments) {
-              state.items[taskIndex].comments = [];
-            }
-            
-            // Проверяем, нет ли уже такого комментария
-            const commentExists = state.items[taskIndex].comments.some(c => 
-              c._id === comment._id
-            );
-            
-            if (!commentExists) {
-              state.items[taskIndex].comments.push(comment);
-              log('success', 'Комментарий добавлен к задаче в состоянии', { 
-                taskId: comment.taskId 
-              });
-            }
-          }
-        }
-      })
-      .addCase(addComment.rejected, (state, action) => {
-        state.operationLoading = false;
-        state.operationError = action.payload || 'Ошибка добавления комментария';
-        log('error', 'Ошибка добавления комментария в состоянии', action.payload);
+        state.error = action.payload || 'Ошибка удаления задачи';
       })
       
       // Обновление статуса задачи
       .addCase(updateTaskStatus.pending, (state) => {
         state.operationLoading = true;
-        state.operationError = null;
-        state.requestCount += 1;
-        log('info', 'Начало обновления статуса задачи...');
+        state.error = null;
       })
       .addCase(updateTaskStatus.fulfilled, (state, action) => {
         state.operationLoading = false;
         const updatedTask = action.payload.task;
-        if (updatedTask && updatedTask._id) {
-          const index = state.items.findIndex(t => t._id === updatedTask._id);
-          if (index !== -1) {
-            state.items[index].status = updatedTask.status;
-            if (updatedTask.position !== undefined) {
-              state.items[index].position = updatedTask.position;
-            }
-            log('success', 'Статус задачи обновлен в состоянии', { 
-              id: updatedTask._id, 
-              status: updatedTask.status 
-            });
-          }
+        
+        const index = state.tasks.findIndex(task => task._id === updatedTask._id);
+        if (index !== -1) {
+          state.tasks[index] = updatedTask;
+        }
+        
+        if (state.currentTask && state.currentTask._id === updatedTask._id) {
+          state.currentTask = updatedTask;
         }
       })
       .addCase(updateTaskStatus.rejected, (state, action) => {
         state.operationLoading = false;
-        state.operationError = action.payload || 'Ошибка обновления статуса';
-        log('error', 'Ошибка обновления статуса задачи в состоянии', action.payload);
+        state.error = action.payload || 'Ошибка обновления статуса';
+      })
+      
+      // Обновление чеклиста
+      .addCase(updateChecklist.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(updateChecklist.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        const { taskId, checklist } = action.payload;
+        
+        const taskIndex = state.tasks.findIndex(task => task._id === taskId);
+        if (taskIndex !== -1) {
+          state.tasks[taskIndex].checklist = checklist;
+        }
+        
+        if (state.currentTask && state.currentTask._id === taskId) {
+          state.currentTask.checklist = checklist;
+        }
+      })
+      .addCase(updateChecklist.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload || 'Ошибка обновления чеклиста';
+      })
+      
+      // Добавление комментария
+      .addCase(addComment.pending, (state) => {
+        state.operationLoading = true;
+        state.error = null;
+      })
+      .addCase(addComment.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        const { comment } = action.payload;
+        const taskId = comment?.taskId || action.meta.arg.taskId;
+        
+        const taskIndex = state.tasks.findIndex(task => task._id === taskId);
+        if (taskIndex !== -1) {
+          if (!state.tasks[taskIndex].comments) {
+            state.tasks[taskIndex].comments = [];
+          }
+          state.tasks[taskIndex].comments.push(comment);
+        }
+        
+        if (state.currentTask && state.currentTask._id === taskId) {
+          if (!state.currentTask.comments) {
+            state.currentTask.comments = [];
+          }
+          state.currentTask.comments.push(comment);
+        }
+      })
+      .addCase(addComment.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload || 'Ошибка добавления комментария';
+      })
+      
+      // Обновление комментария
+      .addCase(updateComment.pending, (state) => {
+        state.operationLoading = true;
+      })
+      .addCase(updateComment.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        const { comment } = action.payload;
+        const taskId = action.meta.arg.taskId;
+        
+        const taskIndex = state.tasks.findIndex(task => task._id === taskId);
+        if (taskIndex !== -1 && state.tasks[taskIndex].comments) {
+          const commentIndex = state.tasks[taskIndex].comments.findIndex(c => c._id === comment._id);
+          if (commentIndex !== -1) {
+            state.tasks[taskIndex].comments[commentIndex] = comment;
+          }
+        }
+        
+        if (state.currentTask && state.currentTask._id === taskId && state.currentTask.comments) {
+          const commentIndex = state.currentTask.comments.findIndex(c => c._id === comment._id);
+          if (commentIndex !== -1) {
+            state.currentTask.comments[commentIndex] = comment;
+          }
+        }
+      })
+      .addCase(updateComment.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload || 'Ошибка обновления комментария';
+      })
+      
+      // Удаление комментария
+      .addCase(deleteComment.pending, (state) => {
+        state.operationLoading = true;
+      })
+      .addCase(deleteComment.fulfilled, (state, action) => {
+        state.operationLoading = false;
+        const { taskId, commentId } = action.payload;
+        
+        const taskIndex = state.tasks.findIndex(task => task._id === taskId);
+        if (taskIndex !== -1 && state.tasks[taskIndex].comments) {
+          state.tasks[taskIndex].comments = state.tasks[taskIndex].comments.filter(c => c._id !== commentId);
+        }
+        
+        if (state.currentTask && state.currentTask._id === taskId && state.currentTask.comments) {
+          state.currentTask.comments = state.currentTask.comments.filter(c => c._id !== commentId);
+        }
+      })
+      .addCase(deleteComment.rejected, (state, action) => {
+        state.operationLoading = false;
+        state.error = action.payload || 'Ошибка удаления комментария';
+      })
+      
+      // ✅ ДОБАВЛЯЕМ: Получение статистики пользователя
+      .addCase(getUserTaskStats.pending, (state) => {
+        state.statsLoading = true;
+        state.statsError = null;
+      })
+      .addCase(getUserTaskStats.fulfilled, (state, action) => {
+        state.statsLoading = false;
+        state.userStats = action.payload.stats;
+      })
+      .addCase(getUserTaskStats.rejected, (state, action) => {
+        state.statsLoading = false;
+        state.statsError = action.payload || 'Ошибка загрузки статистики';
+      })
+      
+      // ✅ ДОБАВЛЯЕМ: Получение последней активности
+      .addCase(getRecentActivity.pending, (state) => {
+        state.activityLoading = true;
+        state.activityError = null;
+      })
+      .addCase(getRecentActivity.fulfilled, (state, action) => {
+        state.activityLoading = false;
+        state.recentActivity = action.payload.activities || [];
+      })
+      .addCase(getRecentActivity.rejected, (state, action) => {
+        state.activityLoading = false;
+        state.activityError = action.payload || 'Ошибка загрузки активности';
       });
   }
 });
 
-export const { 
-  clearTasks, 
-  clearError,
-  setCurrentProjectId,
+export const {
+  setCurrentTask,
+  clearCurrentTask,
+  setStatusFilter,
+  setSearchQuery,
+  setSortBy,
+  setSortOrder,
   updateLastFetchTime,
-  clearStats,
-  addMockTask,
-  clearTasksCache,
-  incrementRequestCount,
-  resetRequestCount
+  handleTaskCreated,
+  handleTaskUpdated,
+  handleTaskDeleted,
+  handleChecklistUpdated,
+  handleCommentAdded,
+  handleCommentUpdated,
+  handleCommentDeleted,
+  clearTasks,
+  clearError,
+  clearStats
 } = tasksSlice.actions;
 
 export default tasksSlice.reducer;

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Form, Row, Col, Button, Badge, Card, Accordion } from 'react-bootstrap';
+import './TaskFilters.css';
 
 const TaskFilters = ({ 
   tasks, 

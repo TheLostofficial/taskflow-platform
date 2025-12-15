@@ -1,35 +1,7 @@
-import axios from 'axios';
-import { API_URL } from '../utils/constants';
+import api from './api';
 
-const api = axios.create({
-  baseURL: API_URL,
-});
-
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
-
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
-
-export const commentService = {
+const commentService = {
+  // Получение комментариев задачи
   async getTaskComments(taskId) {
     try {
       const response = await api.get(`/tasks/${taskId}/comments`);
@@ -40,12 +12,33 @@ export const commentService = {
     }
   },
 
+  // Добавление комментария (с поддержкой файлов)
   async addComment(taskId, commentData) {
     try {
+      console.log('📤 [SERVICE] Добавление комментария к задаче:', taskId);
+      console.log('📤 [SERVICE] Данные комментария:', commentData);
+      
       let response;
       
       if (commentData instanceof FormData) {
-        // Если это FormData (с вложениями)
+        // Проверяем, есть ли контент в FormData
+        const content = commentData.get('content');
+        console.log('📤 [SERVICE] FormData content:', content);
+        
+        // Проверяем, есть ли файлы
+        const hasFiles = commentData.getAll('attachments').length > 0;
+        console.log('📤 [SERVICE] Has files:', hasFiles);
+        
+        if (!content && !hasFiles) {
+          throw new Error('Comment content is required or attach a file');
+        }
+        
+        // Логируем содержимое FormData
+        console.log('📤 [SERVICE] FormData содержимое:');
+        for (let [key, value] of commentData.entries()) {
+          console.log(`  ${key}:`, value instanceof File ? `${value.name} (${value.size} bytes)` : value);
+        }
+        
         response = await api.post(`/tasks/${taskId}/comments`, commentData, {
           headers: {
             'Content-Type': 'multipart/form-data',
@@ -53,19 +46,27 @@ export const commentService = {
         });
       } else {
         // Если это обычный объект (без вложений)
+        console.log('📤 [SERVICE] Обычный объект:', commentData);
+        if (!commentData.content || commentData.content.trim() === '') {
+          throw new Error('Comment content is required');
+        }
+        
         response = await api.post(`/tasks/${taskId}/comments`, commentData);
       }
       
+      console.log('✅ [SERVICE] Комментарий успешно добавлен:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Add comment error:', error);
+      console.error('❌ [SERVICE] Ошибка добавления комментария:', error);
+      console.error('❌ [SERVICE] Ответ сервера:', error.response?.data);
       throw error;
     }
   },
 
-  async updateComment(taskId, commentId, commentData) {
+  // Обновление комментария
+  async updateComment(taskId, commentId, updateData) {
     try {
-      const response = await api.put(`/tasks/${taskId}/comments/${commentId}`, commentData);
+      const response = await api.put(`/tasks/${taskId}/comments/${commentId}`, updateData);
       return response.data;
     } catch (error) {
       console.error('Update comment error:', error);
@@ -73,6 +74,7 @@ export const commentService = {
     }
   },
 
+  // Удаление комментария
   async deleteComment(taskId, commentId) {
     try {
       const response = await api.delete(`/tasks/${taskId}/comments/${commentId}`);
@@ -83,13 +85,14 @@ export const commentService = {
     }
   },
 
+  // Скачивание вложения
   async downloadAttachment(taskId, commentId, filename, originalName) {
     try {
       const response = await api.get(`/tasks/${taskId}/comments/${commentId}/attachments/${filename}`, {
         responseType: 'blob'
       });
       
-      // Создаём ссылку для скачивания
+      // Создаем ссылку для скачивания
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -99,13 +102,24 @@ export const commentService = {
       link.remove();
       window.URL.revokeObjectURL(url);
       
-      return true;
     } catch (error) {
       console.error('Download attachment error:', error);
       throw error;
     }
   },
 
+  // Упоминания в комментариях
+  async getMentions(taskId, query) {
+    try {
+      const response = await api.get(`/tasks/${taskId}/mentions?q=${query}`);
+      return response.data;
+    } catch (error) {
+      console.error('Get mentions error:', error);
+      throw error;
+    }
+  },
+
+  // Вспомогательные функции
   formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
